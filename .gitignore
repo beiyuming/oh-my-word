@@ -1,0 +1,14 @@
+.tools/
+.nuget/
+.superpowers/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+dist/
+build/oh-my-word-py/
+*.spec
+storage/*.json
+storage/*.log
+storage/*.log.1
+python-app/
+src/
