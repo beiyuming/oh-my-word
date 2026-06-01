@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (
     QFrame,
@@ -47,6 +47,14 @@ def _normalize_position(value: Any) -> str:
     return _POSITION_ALIASES.get(raw, "bottom_right")
 
 
+def _event_global_pos(event: Any) -> QPoint:
+    global_position = getattr(event, "globalPosition", lambda: None)()
+    if global_position is not None and hasattr(global_position, "toPoint"):
+        return global_position.toPoint()
+    global_pos = getattr(event, "globalPos", lambda: QPoint())()
+    return global_pos if isinstance(global_pos, QPoint) else QPoint()
+
+
 def _first_text(source: Any, *names: str) -> str:
     for name in names:
         value = getattr(source, name, None)
@@ -86,7 +94,7 @@ def _format_summary(entry: Any) -> str:
         lines = _coerce_text_lines(getattr(entry, name, None))
         if lines:
             return " / ".join(lines[:3])
-    return "No definition available."
+    return "暂无释义。"
 
 
 def _format_details(entry: Any) -> str:
@@ -100,17 +108,17 @@ def _format_details(entry: Any) -> str:
         definitions = [summary] if summary else []
 
     if definitions:
-        detail_lines.append("Definitions")
+        detail_lines.append("释义")
         detail_lines.extend(f"- {line}" for line in definitions)
 
-    for label, attr in (("Examples", "examples"), ("Phrases", "phrases"), ("Notes", "notes")):
+    for label, attr in (("例句", "examples"), ("短语", "phrases"), ("备注", "notes")):
         lines = _coerce_text_lines(getattr(entry, attr, None))
         if lines:
             detail_lines.append("")
             detail_lines.append(label)
             detail_lines.extend(f"- {line}" for line in lines)
 
-    return "\n".join(detail_lines).strip() or "No additional details."
+    return "\n".join(detail_lines).strip() or "暂无更多详情。"
 
 
 def _screen_rect(anchor: QPoint | None = None) -> QRect:
@@ -159,6 +167,8 @@ class CardPopup(QFrame):
     pronounce = Signal(str)
     toggle_details = Signal(bool)
     mark_mastered = Signal(str)
+    reviewed = Signal(str, bool)
+    dismissed = Signal()
     closed = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -169,6 +179,8 @@ class CardPopup(QFrame):
         self._auto_hide_enabled = True
         self._hovered = False
         self._pending_hide_ms = 0
+        self._drag_offset: QPoint | None = None
+        self._manual_positioned = False
 
         self._auto_hide_timer = QTimer(self)
         self._auto_hide_timer.setSingleShot(True)
@@ -194,7 +206,7 @@ class CardPopup(QFrame):
 
     def set_entry(self, entry: Any) -> None:
         self._entry = entry
-        term = _first_text(entry, "term", "word", "text") or "Word"
+        term = _first_text(entry, "term", "word", "text") or "单词"
         ipa = _first_text(entry, "ipa", "pronunciation", "phonetic")
         summary = _format_summary(entry)
         details = _format_details(entry)
@@ -228,6 +240,7 @@ class CardPopup(QFrame):
         anchor: QPoint | None = None,
         auto_hide_ms: int | None = None,
     ) -> None:
+        self._manual_positioned = False
         self.set_entry(entry)
         self.reposition(position=position, anchor=anchor)
         self.show()
@@ -258,7 +271,7 @@ class CardPopup(QFrame):
         self._sync_details_visibility()
         self.toggle_details.emit(expanded)
         self._refresh_layout_size()
-        if self.isVisible():
+        if self.isVisible() and not self._manual_positioned:
             self.reposition()
 
     def closeEvent(self, event: Any) -> None:
@@ -277,6 +290,16 @@ class CardPopup(QFrame):
             self._auto_hide_timer.start(self._pending_hide_ms)
         super().leaveEvent(event)
 
+    def eventFilter(self, watched: Any, event: Any) -> bool:
+        event_type = event.type()
+        if event_type == QEvent.Type.MouseButtonPress:
+            return self._begin_drag(event)
+        if event_type == QEvent.Type.MouseMove:
+            return self._drag_to(event)
+        if event_type == QEvent.Type.MouseButtonRelease:
+            return self._finish_drag(event)
+        return super().eventFilter(watched, event)
+
     def _build_ui(self) -> None:
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(12, 12, 12, 12)
@@ -294,22 +317,22 @@ class CardPopup(QFrame):
         header.setVerticalSpacing(4)
         layout.addLayout(header)
 
-        self.word_label = QLabel("Word", card)
+        self.word_label = QLabel("单词", card)
         self.word_label.setObjectName("wordLabel")
         self.word_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         header.addWidget(self.word_label, 0, 0)
 
-        self.close_button = QPushButton("x", card)
+        self.close_button = QPushButton("×", card)
         self.close_button.setObjectName("closeButton")
         self.close_button.setFixedSize(28, 28)
-        self.close_button.clicked.connect(self.close)
+        self.close_button.clicked.connect(self._request_dismiss)
         header.addWidget(self.close_button, 0, 1, alignment=Qt.AlignmentFlag.AlignRight)
 
         self.ipa_label = QLabel("/.../", card)
         self.ipa_label.setObjectName("ipaLabel")
         header.addWidget(self.ipa_label, 1, 0)
 
-        self.summary_label = QLabel("No definition available.", card)
+        self.summary_label = QLabel("暂无释义。", card)
         self.summary_label.setObjectName("summaryLabel")
         self.summary_label.setWordWrap(True)
         layout.addWidget(self.summary_label)
@@ -318,15 +341,23 @@ class CardPopup(QFrame):
         actions.setSpacing(8)
         layout.addLayout(actions)
 
-        self.pronounce_button = QPushButton("Speak", card)
+        self.pronounce_button = QPushButton("朗读", card)
         self.pronounce_button.clicked.connect(self._emit_pronounce)
         actions.addWidget(self.pronounce_button)
 
-        self.details_button = QPushButton("Show details", card)
+        self.details_button = QPushButton("展开详情", card)
         self.details_button.clicked.connect(self._toggle_details)
         actions.addWidget(self.details_button)
 
-        self.mastered_button = QPushButton("Mastered", card)
+        self.known_button = QPushButton("认识", card)
+        self.known_button.clicked.connect(lambda: self._emit_reviewed(True))
+        actions.addWidget(self.known_button)
+
+        self.unknown_button = QPushButton("不认识", card)
+        self.unknown_button.clicked.connect(lambda: self._emit_reviewed(False))
+        actions.addWidget(self.unknown_button)
+
+        self.mastered_button = QPushButton("已掌握", card)
         self.mastered_button.clicked.connect(self._emit_mastered)
         actions.addWidget(self.mastered_button)
 
@@ -338,7 +369,7 @@ class CardPopup(QFrame):
         details_layout.setContentsMargins(0, 8, 0, 0)
         details_layout.setSpacing(0)
 
-        self.details_label = QLabel("No additional details.", self.details_container)
+        self.details_label = QLabel("暂无更多详情。", self.details_container)
         self.details_label.setObjectName("detailsLabel")
         self.details_label.setWordWrap(True)
         self.details_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -396,6 +427,15 @@ class CardPopup(QFrame):
             }
             """
         )
+        for draggable in (
+            card,
+            self.word_label,
+            self.ipa_label,
+            self.summary_label,
+            self.details_container,
+        ):
+            draggable.installEventFilter(self)
+            draggable.setMouseTracking(True)
 
     def _refresh_layout_size(self) -> None:
         self.adjustSize()
@@ -404,7 +444,7 @@ class CardPopup(QFrame):
 
     def _sync_details_visibility(self) -> None:
         self.details_container.setVisible(self._details_expanded)
-        self.details_button.setText("Hide details" if self._details_expanded else "Show details")
+        self.details_button.setText("收起详情" if self._details_expanded else "展开详情")
 
     def _toggle_details(self) -> None:
         self.set_details_expanded(not self._details_expanded)
@@ -423,6 +463,40 @@ class CardPopup(QFrame):
         term = self._entry_term()
         if term:
             self.mark_mastered.emit(term)
+
+    def _emit_reviewed(self, known: bool) -> None:
+        term = self._entry_term()
+        if term:
+            self.reviewed.emit(term, known)
+
+    def _request_dismiss(self) -> None:
+        self.dismissed.emit()
+        self.close()
+
+    def _begin_drag(self, event: Any) -> bool:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        self.stop_auto_hide()
+        self._drag_offset = _event_global_pos(event) - self.frameGeometry().topLeft()
+        self._manual_positioned = True
+        event.accept()
+        return True
+
+    def _drag_to(self, event: Any) -> bool:
+        if self._drag_offset is None or not event.buttons() & Qt.MouseButton.LeftButton:
+            return False
+        self.move(_event_global_pos(event) - self._drag_offset)
+        event.accept()
+        return True
+
+    def _finish_drag(self, event: Any) -> bool:
+        if self._drag_offset is None:
+            return False
+        self._drag_offset = None
+        if self._auto_hide_enabled and not self._hovered and self._pending_hide_ms > 0 and self.isVisible():
+            self._auto_hide_timer.start(self._pending_hide_ms)
+        event.accept()
+        return True
 
     def _hide_if_allowed(self) -> None:
         if not self._hovered:

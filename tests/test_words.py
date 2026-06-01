@@ -3,12 +3,18 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 from app.models import LearningState, WordEntry, WordProgress
 from app.words import (
+    RECOMMENDED_KAOYAN_LICENSE,
+    RECOMMENDED_KAOYAN_SOURCE_URL,
     WordCatalog,
+    download_recommended_kaoyan_wordbook,
     ensure_default_wordbook,
+    import_wordbook_file,
     load_word_catalog,
     select_next_word,
 )
@@ -86,6 +92,114 @@ class LoadWordCatalogTests(unittest.TestCase):
             self.assertGreaterEqual(len(data), 10)
             self.assertIn("exam", data[0]["example_sentence"].lower())
 
+    def test_import_wordbook_file_accepts_flexible_json_and_converts_to_local_format(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "custom.json"
+            target_dir = root / "wordbooks"
+            source.write_text(
+                json.dumps(
+                    [
+                        {
+                            "term": "focus",
+                            "phonetic": "/focus/",
+                            "pos": "noun",
+                            "translation": "重点；焦点",
+                            "example": "Focus on review.",
+                        }
+                    ],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = import_wordbook_file(source, target_dir)
+            payload = json.loads(result.path.read_text(encoding="utf-8"))
+
+            self.assertEqual(1, result.imported_count)
+            self.assertEqual("focus", payload[0]["word"])
+            self.assertEqual(["重点", "焦点"], payload[0]["definitions"])
+
+    def test_import_wordbook_file_accepts_csv(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "custom.csv"
+            target_dir = root / "wordbooks"
+            source.write_text(
+                "word,ipa,part_of_speech,definitions,example_sentence,example_translation\n"
+                "focus,/focus/,noun,重点|焦点,Focus on review.,专注复习。\n",
+                encoding="utf-8",
+            )
+
+            result = import_wordbook_file(source, target_dir)
+            payload = json.loads(result.path.read_text(encoding="utf-8"))
+
+            self.assertEqual(1, result.imported_count)
+            self.assertEqual("focus", payload[0]["word"])
+            self.assertEqual(["重点", "焦点"], payload[0]["definitions"])
+
+    def test_import_wordbook_file_accepts_nested_common_wordbook_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "nested.json"
+            target_dir = root / "wordbooks"
+            source.write_text(
+                json.dumps(
+                    [
+                        {
+                            "content": {
+                                "word": {"wordHead": "derive"},
+                                "trans": [{"tranCn": "获得；推导"}],
+                            }
+                        }
+                    ],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = import_wordbook_file(source, target_dir)
+            payload = json.loads(result.path.read_text(encoding="utf-8"))
+
+            self.assertEqual(1, result.imported_count)
+            self.assertEqual("derive", payload[0]["word"])
+            self.assertEqual(["获得", "推导"], payload[0]["definitions"])
+
+    def test_recommended_kaoyan_source_uses_netem_vocabulary(self) -> None:
+        self.assertIn("exam-data/NETEMVocabulary", RECOMMENDED_KAOYAN_SOURCE_URL)
+        self.assertEqual("CC BY-NC-SA 4.0", RECOMMENDED_KAOYAN_LICENSE)
+
+    def test_download_recommended_kaoyan_wordbook_converts_payload_to_local_format(self) -> None:
+        class _Response:
+            def __enter__(self) -> "_Response":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return json.dumps(
+                    [
+                        {
+                            "content": {
+                                "word": {"wordHead": "derive"},
+                                "trans": [{"tranCn": "获得；推导"}],
+                            }
+                        }
+                    ],
+                    ensure_ascii=False,
+                ).encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch("app.words.urlopen", return_value=_Response()):
+                result = download_recommended_kaoyan_wordbook(Path(temp_dir))
+
+            payload = json.loads(result.path.read_text(encoding="utf-8"))
+            self.assertEqual("kaoyan_full.json", result.path.name)
+            self.assertEqual(1, result.imported_count)
+            self.assertEqual("derive", payload[0]["word"])
+            self.assertEqual(["获得", "推导"], payload[0]["definitions"])
+
     @staticmethod
     def _write_wordbook(path: Path, entries: list[dict[str, object]]) -> None:
         path.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -159,6 +273,22 @@ class SelectNextWordTests(unittest.TestCase):
         result = select_next_word(catalog, state, recent_window_size=1)
 
         self.assertIn(result.word.word if result.word else None, {"abandon", "brisk"})
+
+    def test_select_next_word_prioritizes_due_reviews_before_new_words(self) -> None:
+        now = datetime(2026, 5, 30, 10, 0, tzinfo=UTC)
+        catalog = WordCatalog.from_entries([self._word("abandon"), self._word("brisk")])
+        state = LearningState(
+            progress={
+                "brisk": WordProgress(
+                    due_at=(now - timedelta(minutes=1)).isoformat(),
+                    review_count=1,
+                )
+            }
+        )
+
+        result = select_next_word(catalog, state, now=now)
+
+        self.assertEqual("brisk", result.word.word if result.word else None)
 
     @staticmethod
     def _word(word: str) -> WordEntry:

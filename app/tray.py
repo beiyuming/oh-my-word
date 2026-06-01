@@ -7,6 +7,14 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
+from .models import DisplayMode
+
+
+_DISPLAY_MODE_LABELS = {
+    DisplayMode.CARD: "卡片",
+    DisplayMode.BARRAGE: "弹幕",
+}
+
 
 class TrayController(QObject):
     """Owns the system tray icon and emits user intent back to the controller."""
@@ -34,12 +42,12 @@ class TrayController(QObject):
         self._tray_icon.setToolTip(tooltip)
 
         self._menu = QMenu()
-        self._toggle_enabled_action = QAction("Pause Learning", self)
+        self._toggle_enabled_action = QAction(self)
         self._toggle_enabled_action.setCheckable(True)
-        self._trigger_now_action = QAction("Trigger Now", self)
-        self._switch_display_mode_action = QAction("Switch Display Mode", self)
-        self._open_settings_action = QAction("Open Settings", self)
-        self._exit_action = QAction("Exit", self)
+        self._trigger_now_action = QAction("立刻弹出一个", self)
+        self._switch_display_mode_action = QAction(self)
+        self._open_settings_action = QAction("打开设置", self)
+        self._exit_action = QAction("退出", self)
 
         self._menu.addAction(self._toggle_enabled_action)
         self._menu.addAction(self._trigger_now_action)
@@ -50,7 +58,7 @@ class TrayController(QObject):
         self._tray_icon.setContextMenu(self._menu)
 
         self._enabled = True
-        self._display_mode_label = "Unknown"
+        self._display_mode_label = "未知"
 
         self._toggle_enabled_action.toggled.connect(self._emit_toggle_enabled_requested)
         self._trigger_now_action.triggered.connect(self.trigger_now_requested.emit)
@@ -138,20 +146,22 @@ class TrayController(QObject):
 
     def _refresh_labels(self) -> None:
         self._toggle_enabled_action.setText(
-            "Pause Learning" if self._enabled else "Resume Learning"
+            "自动学习：已开启（点击暂停）" if self._enabled else "自动学习：已暂停（点击继续）"
         )
         self._switch_display_mode_action.setText(
-            f"Switch Display Mode ({self._display_mode_label})"
+            f"切换显示方式（当前：{self._display_mode_label}）"
         )
 
     def _refresh_tooltip(self) -> None:
-        state = "Running" if self._enabled else "Paused"
+        state = "学习中" if self._enabled else "已暂停"
         self._tray_icon.setToolTip(f"oh my word | {state} | {self._display_mode_label}")
 
     @staticmethod
     def _format_enum_value(value: Any) -> str:
         if value is None:
-            return "Unknown"
+            return "未知"
+        if value in _DISPLAY_MODE_LABELS:
+            return _DISPLAY_MODE_LABELS[value]
         name = getattr(value, "name", None)
         raw = name if isinstance(name, str) and name else str(value)
-        return raw.replace("_", " ").title()
+        return raw.replace("_", " ")

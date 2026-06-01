@@ -25,6 +25,8 @@ class SchedulerSettings:
     min_delay_minutes: int = 8
     max_delay_minutes: int = 20
     busy_stop_threshold_seconds: int = 60
+    activity_threshold_per_minute: int = 90
+    activity_slowdown_weight: int = 100
     idle_multiplier_step_seconds: int = 60
 
     @classmethod
@@ -37,6 +39,12 @@ class SchedulerSettings:
                 busy_stop_threshold_seconds=int(
                     getattr(settings, "busy_stop_threshold_seconds", 60)
                 ),
+                activity_threshold_per_minute=int(
+                    getattr(settings, "activity_threshold_per_minute", 90)
+                ),
+                activity_slowdown_weight=int(
+                    getattr(settings, "activity_slowdown_weight", 100)
+                ),
                 idle_multiplier_step_seconds=int(
                     getattr(settings, "idle_multiplier_step_seconds", 60)
                 ),
@@ -48,7 +56,7 @@ class SchedulerSettings:
 class SchedulerState(Generic[WordT]):
     running: bool = False
     next_due_at: datetime | None = None
-    queued_word: WordT | None = None
+    queued_words: tuple[WordT, ...] = ()
 
 
 class SchedulerActionKind(str, Enum):
@@ -74,12 +82,16 @@ def normalize_scheduler_settings(settings: SchedulerSettings) -> SchedulerSettin
     min_delay = max(1, settings.min_delay_minutes)
     max_delay = max(min_delay, settings.max_delay_minutes)
     busy_threshold = max(1, settings.busy_stop_threshold_seconds)
+    activity_threshold = max(1, settings.activity_threshold_per_minute)
+    activity_weight = max(0, settings.activity_slowdown_weight)
     idle_step = max(1, settings.idle_multiplier_step_seconds)
     return replace(
         settings,
         min_delay_minutes=min_delay,
         max_delay_minutes=max_delay,
         busy_stop_threshold_seconds=busy_threshold,
+        activity_threshold_per_minute=activity_threshold,
+        activity_slowdown_weight=activity_weight,
         idle_multiplier_step_seconds=idle_step,
     )
 
@@ -94,33 +106,32 @@ def random_base_delay_minutes(
     return normalized.min_delay_minutes + offset
 
 
-def idle_delay_multiplier(
-    idle_seconds: float,
+def activity_delay_multiplier(
+    activity_events_per_minute: float,
     settings: SchedulerSettings,
-) -> int:
+) -> float:
     normalized = normalize_scheduler_settings(settings)
-    if idle_seconds < normalized.busy_stop_threshold_seconds:
-        return 0
-
-    extra_idle_seconds = max(0.0, idle_seconds - normalized.busy_stop_threshold_seconds)
-    decay_steps = int(extra_idle_seconds // normalized.idle_multiplier_step_seconds)
-    decay_steps = max(0, min(decay_steps, 2))
-    return 2 ** (2 - decay_steps)
+    activity_ratio = max(0.0, activity_events_per_minute) / normalized.activity_threshold_per_minute
+    if activity_ratio >= 1.5:
+        base_multiplier = 4.0
+    elif activity_ratio >= 0.75:
+        base_multiplier = 2.0
+    else:
+        base_multiplier = 1.0
+    weight = normalized.activity_slowdown_weight / 100.0
+    return 1.0 + ((base_multiplier - 1.0) * weight)
 
 
 def compute_next_delay(
     settings: SchedulerSettings,
-    idle_seconds: float,
+    activity_events_per_minute: float,
     random_index: RandomIndexSource,
 ) -> timedelta | None:
     normalized = normalize_scheduler_settings(settings)
     if not normalized.enabled:
         return None
 
-    multiplier = idle_delay_multiplier(idle_seconds, normalized)
-    if multiplier == 0:
-        return None
-
+    multiplier = activity_delay_multiplier(activity_events_per_minute, normalized)
     base_delay_minutes = random_base_delay_minutes(normalized, random_index)
     return timedelta(minutes=base_delay_minutes * multiplier)
 
@@ -151,7 +162,7 @@ class SchedulerCore(Generic[WordT]):
 
     @property
     def queued_word(self) -> WordT | None:
-        return self._state.queued_word
+        return self._state.queued_words[0] if self._state.queued_words else None
 
     @property
     def state(self) -> SchedulerState[WordT]:
@@ -168,25 +179,31 @@ class SchedulerCore(Generic[WordT]):
             self._state = replace(self._state, next_due_at=None)
         return self._settings
 
-    def start(self, now: datetime, idle_seconds: float) -> None:
+    def start(self, now: datetime, activity_events_per_minute: float) -> None:
         self._state = replace(self._state, running=True)
-        self._ensure_next_due(now, idle_seconds)
+        self._ensure_next_due(now, activity_events_per_minute)
 
     def pause(self) -> None:
         self._state = replace(self._state, running=False, next_due_at=None)
 
     stop = pause
 
-    def reset(self, now: datetime | None = None, idle_seconds: float | None = None) -> None:
+    def reset(self, now: datetime | None = None, activity_events_per_minute: float | None = None) -> None:
         self._state = replace(self._state, next_due_at=None)
-        if self._state.running and now is not None and idle_seconds is not None:
-            self._ensure_next_due(now, idle_seconds)
+        if self._state.running and now is not None and activity_events_per_minute is not None:
+            self._ensure_next_due(now, activity_events_per_minute)
 
     def enqueue_word(self, word: WordT) -> EnqueueDecision[WordT]:
-        if self._state.queued_word is not None:
-            return EnqueueDecision(accepted=False, queued_word=self._state.queued_word)
+        queued_word = self.queued_word
+        if queued_word is not None:
+            return EnqueueDecision(accepted=False, queued_word=queued_word)
 
-        self._state = replace(self._state, queued_word=word)
+        self._state = replace(self._state, queued_words=(word,))
+        return EnqueueDecision(accepted=True, queued_word=word)
+
+    def enqueue_word_front(self, word: WordT) -> EnqueueDecision[WordT]:
+        remaining_words = tuple(queued for queued in self._state.queued_words if queued != word)
+        self._state = replace(self._state, queued_words=(word, *remaining_words))
         return EnqueueDecision(accepted=True, queued_word=word)
 
     def manual_request(self, word: WordT | None = None) -> SchedulerAction[WordT]:
@@ -199,9 +216,9 @@ class SchedulerCore(Generic[WordT]):
                 from_queue=False,
             )
 
-        queued_word = self._state.queued_word
+        queued_word = self.queued_word
         if queued_word is not None:
-            self._state = replace(self._state, queued_word=None)
+            self._state = replace(self._state, queued_words=self._state.queued_words[1:])
             return SchedulerAction(
                 kind=SchedulerActionKind.SHOW_WORD,
                 reason="manual",
@@ -214,7 +231,7 @@ class SchedulerCore(Generic[WordT]):
             reason="manual",
         )
 
-    def on_timer(self, now: datetime, idle_seconds: float) -> SchedulerAction[WordT] | None:
+    def on_timer(self, now: datetime, activity_events_per_minute: float) -> SchedulerAction[WordT] | None:
         if not self._state.running:
             return None
 
@@ -223,20 +240,16 @@ class SchedulerCore(Generic[WordT]):
             return None
 
         if self._state.next_due_at is None:
-            self._ensure_next_due(now, idle_seconds)
-            return None
-
-        if idle_seconds < self._settings.busy_stop_threshold_seconds:
-            self._state = replace(self._state, next_due_at=None)
+            self._ensure_next_due(now, activity_events_per_minute)
             return None
 
         if now < self._state.next_due_at:
             return None
 
         self._state = replace(self._state, next_due_at=None)
-        queued_word = self._state.queued_word
+        queued_word = self.queued_word
         if queued_word is not None:
-            self._state = replace(self._state, queued_word=None)
+            self._state = replace(self._state, queued_words=self._state.queued_words[1:])
             return SchedulerAction(
                 kind=SchedulerActionKind.SHOW_WORD,
                 reason="automatic",
@@ -249,11 +262,11 @@ class SchedulerCore(Generic[WordT]):
             reason="automatic",
         )
 
-    def _ensure_next_due(self, now: datetime, idle_seconds: float) -> None:
+    def _ensure_next_due(self, now: datetime, activity_events_per_minute: float) -> None:
         if self._state.next_due_at is not None:
             return
 
-        delay = compute_next_delay(self._settings, idle_seconds, self._random_index)
+        delay = compute_next_delay(self._settings, activity_events_per_minute, self._random_index)
         if delay is None:
             return
 
@@ -265,7 +278,7 @@ class QtScheduler(Generic[WordT]):
         self,
         *,
         settings_provider: Callable[[], Any],
-        idle_seconds_provider: Callable[[], float],
+        activity_rate_provider: Callable[[], float],
         emit_action: Callable[[SchedulerAction[WordT]], None],
         now_provider: Callable[[], datetime] = utc_now,
         interval_ms: int = 3000,
@@ -276,7 +289,7 @@ class QtScheduler(Generic[WordT]):
             raise RuntimeError("PySide6 is required to create a QtScheduler timer.")
 
         self._settings_provider = settings_provider
-        self._idle_seconds_provider = idle_seconds_provider
+        self._activity_rate_provider = activity_rate_provider
         self._emit_action = emit_action
         self._now_provider = now_provider
         self._core: SchedulerCore[WordT] = SchedulerCore(random_index=random_index)
@@ -298,7 +311,7 @@ class QtScheduler(Generic[WordT]):
 
     def start(self) -> None:
         self._refresh_settings()
-        self._core.start(self._now_provider(), self._idle_seconds_provider())
+        self._core.start(self._now_provider(), self._activity_rate_provider())
         if not self._timer.isActive():
             self._timer.start()
 
@@ -310,7 +323,7 @@ class QtScheduler(Generic[WordT]):
 
     def reset(self) -> None:
         self._refresh_settings()
-        self._core.reset(self._now_provider(), self._idle_seconds_provider())
+        self._core.reset(self._now_provider(), self._activity_rate_provider())
 
     def manual_request(self, word: WordT | None = None) -> SchedulerAction[WordT]:
         self._refresh_settings()
@@ -321,9 +334,12 @@ class QtScheduler(Generic[WordT]):
     def enqueue_word(self, word: WordT) -> EnqueueDecision[WordT]:
         return self._core.enqueue_word(word)
 
+    def enqueue_word_front(self, word: WordT) -> EnqueueDecision[WordT]:
+        return self._core.enqueue_word_front(word)
+
     def handle_timer_timeout(self) -> SchedulerAction[WordT] | None:
         self._refresh_settings()
-        action = self._core.on_timer(self._now_provider(), self._idle_seconds_provider())
+        action = self._core.on_timer(self._now_provider(), self._activity_rate_provider())
         if action is not None:
             self._emit_action(action)
         return action

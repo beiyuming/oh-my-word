@@ -1,15 +1,25 @@
 from __future__ import annotations
 
+import csv
 import json
 import random
+from urllib.error import URLError
+from urllib.request import urlopen
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Iterable
 
 from .models import LearningState, WordEntry, WordSelectionResult, WordbookIssue
+from .review import is_due
 
 DEFAULT_WORDBOOK_FILENAME = "kaoyan_core.json"
 DEFAULT_RECENT_WORDS_WINDOW = 5
+RECOMMENDED_KAOYAN_SOURCE_URL = (
+    "https://raw.githubusercontent.com/exam-data/NETEMVocabulary/master/netem_full_list.json"
+)
+RECOMMENDED_KAOYAN_SOURCE_PAGE = "https://github.com/exam-data/NETEMVocabulary"
+RECOMMENDED_KAOYAN_LICENSE = "CC BY-NC-SA 4.0"
 
 DEFAULT_WORDBOOK_ENTRIES: tuple[dict[str, object], ...] = (
     {
@@ -132,6 +142,12 @@ class WordCatalogLoadResult:
     recovered_with_default: bool = False
 
 
+@dataclass(slots=True, frozen=True)
+class WordbookImportResult:
+    path: Path
+    imported_count: int
+
+
 def ensure_default_wordbook(wordbooks_dir: Path) -> Path:
     wordbooks_dir.mkdir(parents=True, exist_ok=True)
     default_path = wordbooks_dir / DEFAULT_WORDBOOK_FILENAME
@@ -159,6 +175,67 @@ def load_word_catalog(wordbooks_dir: Path) -> WordCatalogLoadResult:
     )
 
 
+def import_wordbook_file(source_path: Path, wordbooks_dir: Path) -> WordbookImportResult:
+    if not source_path.exists() or not source_path.is_file():
+        raise ValueError("请选择一个存在的词库文件。")
+
+    suffix = source_path.suffix.casefold()
+    if suffix == ".json":
+        entries = _load_import_json(source_path)
+    elif suffix == ".csv":
+        entries = _load_import_csv(source_path)
+    else:
+        raise ValueError("仅支持导入 JSON 或 CSV 词库。")
+
+    if not entries:
+        raise ValueError("词库里没有可导入的单词。")
+
+    wordbooks_dir.mkdir(parents=True, exist_ok=True)
+    target = _available_import_path(wordbooks_dir, source_path.stem)
+    target.write_text(
+        json.dumps([_word_entry_to_dict(entry) for entry in entries], ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return WordbookImportResult(path=target, imported_count=len(entries))
+
+
+def download_recommended_kaoyan_wordbook(wordbooks_dir: Path) -> WordbookImportResult:
+    try:
+        with urlopen(RECOMMENDED_KAOYAN_SOURCE_URL, timeout=20) as response:
+            raw_bytes = response.read()
+    except (OSError, URLError) as exc:
+        raise ValueError(f"下载推荐词库失败：{exc}") from exc
+
+    try:
+        payload = json.loads(raw_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"推荐词库格式无法解析：{exc}") from exc
+
+    if isinstance(payload, dict):
+        for key in ("words", "data", "entries", "items"):
+            if isinstance(payload.get(key), list):
+                payload = payload[key]
+                break
+        else:
+            list_values = [value for value in payload.values() if isinstance(value, list)]
+            if len(list_values) == 1:
+                payload = list_values[0]
+    if not isinstance(payload, list):
+        raise ValueError("推荐词库格式不是单词数组。")
+
+    entries = _parse_import_entries(payload)
+    if not entries:
+        raise ValueError("推荐词库里没有可导入的单词。")
+
+    wordbooks_dir.mkdir(parents=True, exist_ok=True)
+    target = wordbooks_dir / "kaoyan_full.json"
+    target.write_text(
+        json.dumps([_word_entry_to_dict(entry) for entry in entries], ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return WordbookImportResult(path=target, imported_count=len(entries))
+
+
 def select_next_word(
     catalog: WordCatalog,
     learning_state: LearningState | None = None,
@@ -166,8 +243,10 @@ def select_next_word(
     recent_words: list[str] | None = None,
     recent_window_size: int = DEFAULT_RECENT_WORDS_WINDOW,
     rng: random.Random | None = None,
+    now: datetime | None = None,
 ) -> WordSelectionResult:
     state = learning_state or LearningState()
+    reference_time = now or datetime.now(UTC)
     unmastered_pool = [
         item
         for item in catalog.words
@@ -179,8 +258,19 @@ def select_next_word(
     recent_history = recent_words if recent_words is not None else state.recent_words
     normalized_recent = [item.casefold() for item in recent_history[-max(0, recent_window_size):]]
     recent_set = set(normalized_recent)
-    fresh_pool = [item for item in unmastered_pool if item.word.casefold() not in recent_set]
-    candidate_pool = fresh_pool or unmastered_pool
+    due_pool = [
+        item
+        for item in unmastered_pool
+        if _is_due_for_review(state, item.word, reference_time)
+    ]
+    new_pool = [
+        item
+        for item in unmastered_pool
+        if _progress_for_word(state, item.word) is None
+    ]
+    base_pool = due_pool or new_pool or unmastered_pool
+    fresh_pool = [item for item in base_pool if item.word.casefold() not in recent_set]
+    candidate_pool = fresh_pool or base_pool
 
     chooser = rng or random.Random()
     selected = chooser.choice(candidate_pool)
@@ -222,6 +312,48 @@ def _load_word_catalog_once(wordbooks_dir: Path) -> WordCatalogLoadResult:
     return WordCatalogLoadResult(catalog=WordCatalog.from_entries(merged.values()), issues=issues)
 
 
+def _load_import_json(path: Path) -> list[WordEntry]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"无法读取 JSON：{exc}") from exc
+
+    raw_entries = payload
+    if isinstance(payload, dict):
+        for key in ("words", "data", "entries", "items"):
+            if isinstance(payload.get(key), list):
+                raw_entries = payload[key]
+                break
+        else:
+            list_values = [value for value in payload.values() if isinstance(value, list)]
+            if len(list_values) == 1:
+                raw_entries = list_values[0]
+    if not isinstance(raw_entries, list):
+        raise ValueError("JSON 词库根节点需要是数组，或包含 words/data/entries/items 数组。")
+
+    return _parse_import_entries(raw_entries)
+
+
+def _load_import_csv(path: Path) -> list[WordEntry]:
+    try:
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+    except OSError as exc:
+        raise ValueError(f"无法读取 CSV：{exc}") from exc
+    if not rows:
+        return []
+    return _parse_import_entries(rows)
+
+
+def _parse_import_entries(raw_entries: Iterable[object]) -> list[WordEntry]:
+    entries: dict[str, WordEntry] = {}
+    for raw_entry in raw_entries:
+        entry = _parse_flexible_word_entry(raw_entry)
+        if entry is not None:
+            entries[entry.word.casefold()] = entry
+    return sorted(entries.values(), key=lambda item: item.word.casefold())
+
+
 def _parse_word_entry(raw_entry: object) -> WordEntry:
     if not isinstance(raw_entry, dict):
         raise ValueError("Word entry must be an object.")
@@ -256,14 +388,168 @@ def _parse_word_entry(raw_entry: object) -> WordEntry:
     )
 
 
+def _parse_flexible_word_entry(raw_entry: object) -> WordEntry | None:
+    if not isinstance(raw_entry, dict):
+        return None
+
+    flattened = _flatten_import_entry(raw_entry)
+    word = _first_import_text(
+        flattened,
+        "word",
+        "term",
+        "name",
+        "headword",
+        "headWord",
+        "wordHead",
+        "wordRank",
+        "text",
+        "单词",
+    )
+    if not word:
+        return None
+
+    definitions = _first_import_lines(
+        flattened,
+        "definitions",
+        "definition",
+        "definitionCn",
+        "translations",
+        "translation",
+        "meaning",
+        "meanings",
+        "trans",
+        "tran",
+        "tranCn",
+        "chinese",
+        "cn",
+        "desc",
+        "释义",
+    )
+    if not definitions:
+        return None
+
+    ipa = _first_import_text(flattened, "ipa", "phonetic", "pronunciation", "ukphone", "usphone", "音标") or "/.../"
+    part_of_speech = _first_import_text(flattened, "part_of_speech", "pos", "tag", "speech", "词性") or "unknown"
+    example_sentence = _first_import_text(flattened, "example_sentence", "example", "sentence", "sent", "例句") or word
+    example_translation = _first_import_text(
+        flattened,
+        "example_translation",
+        "example_cn",
+        "sentence_translation",
+        "translation_example",
+        "sentCn",
+        "exampleTranslation",
+        "例句翻译",
+    ) or "暂无例句翻译。"
+
+    return WordEntry(
+        word=word,
+        ipa=ipa,
+        part_of_speech=part_of_speech,
+        definitions=definitions,
+        example_sentence=example_sentence,
+        example_translation=example_translation,
+    )
+
+
 def _require_non_empty_string(value: object, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string.")
     return value.strip()
 
 
+def _word_entry_to_dict(entry: WordEntry) -> dict[str, object]:
+    return {
+        "word": entry.word,
+        "ipa": entry.ipa,
+        "part_of_speech": entry.part_of_speech,
+        "definitions": list(entry.definitions),
+        "example_sentence": entry.example_sentence,
+        "example_translation": entry.example_translation,
+    }
+
+
+def _available_import_path(wordbooks_dir: Path, source_stem: str) -> Path:
+    safe_stem = "".join(char if char.isalnum() or char in ("-", "_") else "_" for char in source_stem)
+    safe_stem = safe_stem.strip("_") or "wordbook"
+    candidate = wordbooks_dir / f"imported_{safe_stem}.json"
+    index = 2
+    while candidate.exists():
+        candidate = wordbooks_dir / f"imported_{safe_stem}_{index}.json"
+        index += 1
+    return candidate
+
+
+def _first_import_text(raw_entry: dict[object, object], *names: str) -> str:
+    for name in names:
+        value = raw_entry.get(name)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            return str(value)
+    return ""
+
+
+def _first_import_lines(raw_entry: dict[object, object], *names: str) -> list[str]:
+    for name in names:
+        value = raw_entry.get(name)
+        lines = _coerce_import_lines(value)
+        if lines:
+            return lines
+    return []
+
+
+def _coerce_import_lines(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        parts = value.replace("|", ";").replace("/", ";").replace("；", ";").split(";")
+        return [part.strip() for part in parts if part.strip()]
+    if isinstance(value, Iterable):
+        lines: list[str] = []
+        for item in value:
+            if isinstance(item, str) and item.strip():
+                lines.append(item.strip())
+            elif isinstance(item, dict):
+                text = _first_import_text(
+                    _flatten_import_entry(item),
+                    "definition",
+                    "definitionCn",
+                    "translation",
+                    "meaning",
+                    "trans",
+                    "tran",
+                    "tranCn",
+                    "chinese",
+                    "cn",
+                    "释义",
+                )
+                if text:
+                    lines.extend(_coerce_import_lines(text))
+        return lines
+    return []
+
+
+def _flatten_import_entry(raw_entry: dict[object, object]) -> dict[object, object]:
+    flattened: dict[object, object] = dict(raw_entry)
+    for value in raw_entry.values():
+        if isinstance(value, dict):
+            flattened.update(_flatten_import_entry(value))
+    return flattened
+
+
 def _is_mastered(state: LearningState, word: str) -> bool:
+    progress = _progress_for_word(state, word)
+    return progress.mastered if progress is not None else False
+
+
+def _is_due_for_review(state: LearningState, word: str, now: datetime) -> bool:
+    progress = _progress_for_word(state, word)
+    return is_due(progress, now) if progress is not None else False
+
+
+def _progress_for_word(state: LearningState, word: str):
     progress = state.progress.get(word)
     if progress is None:
         progress = state.progress.get(word.casefold())
-    return progress.mastered if progress is not None else False
+    return progress

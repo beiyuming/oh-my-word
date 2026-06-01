@@ -62,6 +62,8 @@ class SettingsStoreTests(unittest.TestCase):
                         "min_delay_minutes": -4,
                         "max_delay_minutes": 0,
                         "busy_stop_threshold_seconds": "oops",
+                        "activity_threshold_per_minute": 0,
+                        "activity_slowdown_weight": -1,
                         "popup_duration_seconds": -3,
                         "mute_pronunciation": "no",
                         "accent": "AU",
@@ -83,13 +85,15 @@ class SettingsStoreTests(unittest.TestCase):
             self.assertEqual(settings.min_delay_minutes, 8)
             self.assertEqual(settings.max_delay_minutes, 20)
             self.assertEqual(settings.busy_stop_threshold_seconds, 8)
+            self.assertEqual(settings.activity_threshold_per_minute, 90)
+            self.assertEqual(settings.activity_slowdown_weight, 100)
             self.assertEqual(settings.popup_duration_seconds, 6)
             self.assertFalse(settings.mute_pronunciation)
             self.assertIs(settings.accent, Accent.US)
-            self.assertEqual(settings.pronounce_hotkey, "Alt+1")
-            self.assertEqual(settings.toggle_detail_hotkey, "Alt+2")
+            self.assertEqual(settings.pronounce_hotkey, "Ctrl+Alt+1")
+            self.assertEqual(settings.toggle_detail_hotkey, "Ctrl+Alt+2")
             self.assertEqual(settings.trigger_now_hotkey, "Alt+9")
-            self.assertEqual(settings.mark_mastered_hotkey, "Alt+4")
+            self.assertEqual(settings.mark_mastered_hotkey, "Ctrl+Alt+4")
 
     def test_persists_pretty_utf8_json(self) -> None:
         with TemporaryDirectory() as tmp_dir:
@@ -103,6 +107,19 @@ class SettingsStoreTests(unittest.TestCase):
             self.assertIn('\n  "enabled": true,', raw)
             self.assertTrue(raw.endswith("\n"))
             self.assertEqual(reloaded, settings)
+
+    def test_loads_random_barrage_position(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            paths = make_paths(tmp_dir)
+            paths.storage_dir.mkdir(parents=True, exist_ok=True)
+            paths.settings_path.write_text(
+                json.dumps({"barrage_position": "random"}),
+                encoding="utf-8",
+            )
+
+            settings = SettingsStore(paths).load()
+
+            self.assertIs(settings.barrage_position, OverlayPosition.RANDOM)
 
     def test_recovers_from_corrupted_file(self) -> None:
         with TemporaryDirectory() as tmp_dir:

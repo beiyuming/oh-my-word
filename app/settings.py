@@ -12,6 +12,8 @@ from typing import Any, Protocol
 from .models import (
     Accent,
     AppSettings,
+    DEFAULT_ACTIVITY_THRESHOLD_PER_MINUTE,
+    DEFAULT_ACTIVITY_SLOWDOWN_WEIGHT,
     DEFAULT_BUSY_STOP_THRESHOLD_SECONDS,
     DEFAULT_MARK_MASTERED_HOTKEY,
     DEFAULT_MAX_DELAY_MINUTES,
@@ -133,6 +135,14 @@ def normalize_settings(payload: Any) -> AppSettings:
             data.get("busy_stop_threshold_seconds"),
             DEFAULT_BUSY_STOP_THRESHOLD_SECONDS,
         ),
+        activity_threshold_per_minute=_normalize_positive_int(
+            data.get("activity_threshold_per_minute"),
+            DEFAULT_ACTIVITY_THRESHOLD_PER_MINUTE,
+        ),
+        activity_slowdown_weight=_normalize_non_negative_int(
+            data.get("activity_slowdown_weight"),
+            DEFAULT_ACTIVITY_SLOWDOWN_WEIGHT,
+        ),
         popup_duration_seconds=_normalize_positive_int(
             data.get("popup_duration_seconds"),
             DEFAULT_POPUP_DURATION_SECONDS,
@@ -178,6 +188,14 @@ def normalize_learning_state(payload: Any) -> LearningState:
             last_shown_at=_normalize_optional_text(payload_dict.get("last_shown_at")),
             last_pronounced_at=_normalize_optional_text(payload_dict.get("last_pronounced_at")),
             last_expanded_at=_normalize_optional_text(payload_dict.get("last_expanded_at")),
+            last_reviewed_at=_normalize_optional_text(payload_dict.get("last_reviewed_at")),
+            due_at=_normalize_optional_text(payload_dict.get("due_at")),
+            review_count=_normalize_non_negative_int(payload_dict.get("review_count"), 0),
+            known_count=_normalize_non_negative_int(payload_dict.get("known_count"), 0),
+            unknown_count=_normalize_non_negative_int(payload_dict.get("unknown_count"), 0),
+            stability=_normalize_non_negative_float(payload_dict.get("stability"), 0.0),
+            difficulty=_normalize_positive_float(payload_dict.get("difficulty"), 5.0),
+            last_rating=_normalize_optional_text(payload_dict.get("last_rating")),
             mastered=_normalize_bool(payload_dict.get("mastered"), False),
         )
 
@@ -193,6 +211,8 @@ def settings_to_dict(settings: AppSettings) -> dict[str, Any]:
         "min_delay_minutes": settings.min_delay_minutes,
         "max_delay_minutes": settings.max_delay_minutes,
         "busy_stop_threshold_seconds": settings.busy_stop_threshold_seconds,
+        "activity_threshold_per_minute": settings.activity_threshold_per_minute,
+        "activity_slowdown_weight": settings.activity_slowdown_weight,
         "popup_duration_seconds": settings.popup_duration_seconds,
         "mute_pronunciation": settings.mute_pronunciation,
         "accent": settings.accent.value,
@@ -212,6 +232,14 @@ def learning_state_to_dict(state: LearningState) -> dict[str, Any]:
                 "last_shown_at": progress.last_shown_at,
                 "last_pronounced_at": progress.last_pronounced_at,
                 "last_expanded_at": progress.last_expanded_at,
+                "last_reviewed_at": progress.last_reviewed_at,
+                "due_at": progress.due_at,
+                "review_count": progress.review_count,
+                "known_count": progress.known_count,
+                "unknown_count": progress.unknown_count,
+                "stability": progress.stability,
+                "difficulty": progress.difficulty,
+                "last_rating": progress.last_rating,
                 "mastered": progress.mastered,
             }
             for key, progress in state.progress.items()
@@ -288,6 +316,22 @@ def _normalize_positive_int(value: Any, default: int) -> int:
 
 def _normalize_non_negative_int(value: Any, default: int) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else default
+
+
+def _normalize_non_negative_float(value: Any, default: float) -> float:
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int | float) and value >= 0:
+        return float(value)
+    return default
+
+
+def _normalize_positive_float(value: Any, default: float) -> float:
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int | float) and value > 0:
+        return float(value)
+    return default
 
 
 def _normalize_optional_text(value: Any) -> str | None:
