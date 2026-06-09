@@ -58,6 +58,8 @@ py -3.11 -m pytest tests -q
 
 安装器不得在用户选择的目录已存在时递归删除整个目录。覆盖安装应只删除上一次安装清单记录的应用文件，再写入新 payload。卸载脚本也应只删除安装清单中的应用文件、安装器创建的快捷方式，以及已经变空的应用目录。
 
+安装器可以提供 `Install local VoxCPM pronunciation engine` 可选项，但该选项必须默认关闭。VoxCPM 本地设置只作为安装后的可选 companion process 部署步骤运行，目标目录应位于用户可写目录，例如 `%LOCALAPPDATA%\OhMyWord\voxcpm`。该步骤可以创建独立 venv、安装 service-only requirements 并检查模型，但不得把 VoxCPM、PyTorch、CUDA、模型权重或 `.venv` 放入主 portable payload、根 `requirements.txt` 或主应用 EXE。VoxCPM 设置失败时必须提示日志位置，并且主应用安装仍视为成功。
+
 ## 运行时验证
 
 以下行为不能只凭单元测试声明完成：

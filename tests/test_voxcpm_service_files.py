@@ -25,3 +25,23 @@ def test_voxcpm_server_exposes_local_health_and_synthesize_routes() -> None:
     assert '@app.post("/synthesize")' in server_source
     assert "127.0.0.1" in readme
     assert "not a cloud server" in readme
+
+
+def test_voxcpm_local_installer_script_is_user_scoped_and_resumable() -> None:
+    script = (SERVICE_DIR / "install_local.ps1").read_text(encoding="utf-8")
+
+    assert "$env:LOCALAPPDATA\\OhMyWord\\voxcpm" in script
+    assert "Start-Transcript" in script
+    assert "requirements.txt" in script
+    assert "VoxCPM.from_pretrained" in script
+    assert "openbmb/VoxCPM2" in script
+
+
+def test_windows_installer_voxcpm_option_is_optional_and_non_fatal() -> None:
+    installer_script = (ROOT / "build" / "build_installer.ps1").read_text(encoding="utf-8")
+
+    assert "Install local VoxCPM pronunciation engine" in installer_script
+    assert "install_local.ps1" in installer_script
+    assert "Checked = false" in installer_script
+    assert "VoxCPM setup failed" in installer_script
+    assert "app installation completed" in installer_script

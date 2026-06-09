@@ -12,6 +12,8 @@ $distDir = Join-Path $projectRoot "dist"
 $stagingDir = Join-Path $projectRoot "build\installer"
 $payloadZipName = "$Name-portable.zip"
 $payloadZipPath = Join-Path $stagingDir $payloadZipName
+$voxcpmServiceDir = Join-Path $projectRoot "tools\voxcpm_service"
+$voxcpmServiceZipPath = Join-Path $stagingDir "voxcpm_service.zip"
 $sourcePath = Join-Path $stagingDir "InstallerProgram.cs"
 $installerPath = Join-Path $distDir $InstallerName
 $cscPath = "C:\WINDOWS\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
@@ -38,6 +40,11 @@ if (Test-Path -LiteralPath $payloadZipPath) {
     Remove-Item -LiteralPath $payloadZipPath -Force
 }
 Compress-Archive -Path (Join-Path $portableDir "*") -DestinationPath $payloadZipPath -Force
+
+if (-not (Test-Path -LiteralPath (Join-Path $voxcpmServiceDir "install_local.ps1"))) {
+    throw "VoxCPM local setup script not found: $voxcpmServiceDir"
+}
+Compress-Archive -Path (Join-Path $voxcpmServiceDir "*") -DestinationPath $voxcpmServiceZipPath -Force
 
 $installerSource = @"
 using System;
@@ -81,6 +88,7 @@ internal static class Program
         private readonly CheckBox desktopShortcutBox;
         private readonly CheckBox startMenuShortcutBox;
         private readonly CheckBox launchAfterInstallBox;
+        private readonly CheckBox installVoxCpmBox;
         private readonly Button installButton;
         private readonly ProgressBar progressBar;
         private readonly Label statusLabel;
@@ -92,7 +100,7 @@ internal static class Program
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
-            ClientSize = new Size(560, 260);
+            ClientSize = new Size(620, 340);
 
             var defaultInstallRoot = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -160,10 +168,26 @@ internal static class Program
                 Location = new Point(380, 146)
             };
 
+            installVoxCpmBox = new CheckBox
+            {
+                Text = "Install local VoxCPM pronunciation engine",
+                Checked = false,
+                AutoSize = true,
+                Location = new Point(20, 176)
+            };
+
+            var voxCpmDescriptionLabel = new Label
+            {
+                Text = "Optional. Downloads several GB and works best with NVIDIA GPU 8 GB+ VRAM. App installation completed even if VoxCPM setup fails.",
+                AutoSize = false,
+                Location = new Point(38, 200),
+                Size = new Size(560, 36)
+            };
+
             progressBar = new ProgressBar
             {
-                Location = new Point(20, 180),
-                Size = new Size(520, 18),
+                Location = new Point(20, 246),
+                Size = new Size(580, 18),
                 Style = ProgressBarStyle.Continuous
             };
 
@@ -171,13 +195,13 @@ internal static class Program
             {
                 Text = "",
                 AutoSize = true,
-                Location = new Point(20, 206)
+                Location = new Point(20, 272)
             };
 
             installButton = new Button
             {
                 Text = "Install",
-                Location = new Point(360, 222),
+                Location = new Point(420, 294),
                 Size = new Size(84, 28)
             };
             installButton.Click += Install;
@@ -186,7 +210,7 @@ internal static class Program
             {
                 Text = "Cancel",
                 DialogResult = DialogResult.Cancel,
-                Location = new Point(456, 222),
+                Location = new Point(516, 294),
                 Size = new Size(84, 28)
             };
 
@@ -200,6 +224,8 @@ internal static class Program
                 desktopShortcutBox,
                 startMenuShortcutBox,
                 launchAfterInstallBox,
+                installVoxCpmBox,
+                voxCpmDescriptionLabel,
                 progressBar,
                 statusLabel,
                 installButton,
@@ -239,7 +265,8 @@ internal static class Program
                     installRoot,
                     desktopShortcutBox.Checked,
                     startMenuShortcutBox.Checked,
-                    launchAfterInstallBox.Checked);
+                    launchAfterInstallBox.Checked,
+                    installVoxCpmBox.Checked);
 
                 progressBar.Value = 100;
                 statusLabel.Text = "Installation complete.";
@@ -272,7 +299,8 @@ internal static class Program
             string installRoot,
             bool createDesktopShortcut,
             bool createStartMenuShortcut,
-            bool launchAfterInstall)
+            bool launchAfterInstall,
+            bool installVoxCpmLocal)
         {
             var startMenuDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -358,6 +386,13 @@ internal static class Program
             progressBar.Value = 85;
             Application.DoEvents();
 
+            if (installVoxCpmLocal)
+            {
+                statusLabel.Text = "Starting optional VoxCPM local setup...";
+                Application.DoEvents();
+                RunVoxCpmSetup();
+            }
+
             if (launchAfterInstall)
             {
                 Process.Start(new ProcessStartInfo
@@ -366,6 +401,97 @@ internal static class Program
                     WorkingDirectory = installRoot,
                     UseShellExecute = true
                 });
+            }
+        }
+
+        private void RunVoxCpmSetup()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "oh-my-word-voxcpm-" + Guid.NewGuid().ToString("N"));
+            var tempZip = Path.Combine(tempDir, "voxcpm_service.zip");
+            var logPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "OhMyWord",
+                "voxcpm",
+                "install.log");
+
+            try
+            {
+                Directory.CreateDirectory(tempDir);
+                using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("voxcpm_service.zip"))
+                {
+                    if (stream == null)
+                    {
+                        throw new InvalidOperationException("VoxCPM setup resource missing.");
+                    }
+
+                    using (var output = File.Create(tempZip))
+                    {
+                        stream.CopyTo(output);
+                    }
+                }
+
+                ExtractZipToDirectory(tempZip, tempDir);
+                var scriptPath = Path.Combine(tempDir, "install_local.ps1");
+                if (!File.Exists(scriptPath))
+                {
+                    throw new FileNotFoundException("VoxCPM setup script missing.", scriptPath);
+                }
+
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = "-ExecutionPolicy Bypass -File \"" + scriptPath + "\"",
+                    WorkingDirectory = tempDir,
+                    UseShellExecute = true
+                };
+
+                using (var process = Process.Start(startInfo))
+                {
+                    if (process == null)
+                    {
+                        throw new InvalidOperationException("Could not start PowerShell for VoxCPM setup.");
+                    }
+                    process.WaitForExit();
+                    if (process.ExitCode != 0)
+                    {
+                        MessageBox.Show(
+                            this,
+                            "VoxCPM setup failed. The main app installation completed.\n\nSetup log: " + logPath,
+                            "Oh My Word",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Warning);
+                        return;
+                    }
+                }
+
+                MessageBox.Show(
+                    this,
+                    "VoxCPM local setup completed.",
+                    "Oh My Word",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    this,
+                    "VoxCPM setup failed. The main app installation completed.\n\nSetup log: " + logPath + "\n\n" + ex.Message,
+                    "Oh My Word",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+            finally
+            {
+                try
+                {
+                    if (Directory.Exists(tempDir))
+                    {
+                        Directory.Delete(tempDir, true);
+                    }
+                }
+                catch
+                {
+                }
             }
         }
     }
@@ -607,6 +733,7 @@ $cscArgs = @(
     "/target:winexe",
     "/out:$installerPath",
     "/resource:$payloadZipPath,payload.zip",
+    "/resource:$voxcpmServiceZipPath,voxcpm_service.zip",
     "/reference:System.dll",
     "/reference:System.Core.dll",
     "/reference:System.IO.Compression.dll",
