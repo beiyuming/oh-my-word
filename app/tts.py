@@ -4,6 +4,7 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from PySide6.QtCore import QObject, QLocale, QUrl, Signal
@@ -207,10 +208,13 @@ class VoxCpmHttpProvider:
         self._cache_dir = cache_dir
         self._audio_player = audio_player or LocalWavPlayer()
         self._last_error: str | None = None
+        self._available = _is_local_http_endpoint(self._endpoint)
+        if not self._available:
+            self._last_error = "VoxCPM endpoint must be a local HTTP endpoint."
 
     @property
     def is_available(self) -> bool:
-        return True
+        return self._available
 
     @property
     def last_error(self) -> str | None:
@@ -222,6 +226,9 @@ class VoxCpmHttpProvider:
     def speak(self, text: str, *, accent: Any | None = None) -> bool:
         message = text.strip()
         if not message:
+            return False
+        if not self._available:
+            self._last_error = "VoxCPM endpoint must be a local HTTP endpoint."
             return False
 
         payload = {
@@ -338,3 +345,13 @@ class PronunciationService(QObject):
                 cache_dir=cache_dir or Path.cwd() / "storage" / "tts_cache",
             )
         return QtTextToSpeechProvider(self, accent=accent)
+
+
+def _is_local_http_endpoint(value: str) -> bool:
+    parsed = urlparse(value)
+    hostname = (parsed.hostname or "").lower()
+    return parsed.scheme == "http" and parsed.port is not None and hostname in {
+        "127.0.0.1",
+        "localhost",
+        "::1",
+    }

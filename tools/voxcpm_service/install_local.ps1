@@ -13,17 +13,32 @@ $venvPath = Join-Path $installPath ".venv"
 $logPath = Join-Path $installPath "install.log"
 $serverDir = Join-Path $installPath "service"
 
+function Invoke-Native {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$Arguments
+    )
+
+    & $FilePath @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Command failed ($LASTEXITCODE): $FilePath $($Arguments -join ' ')"
+    }
+}
+
 New-Item -ItemType Directory -Force -Path $installPath | Out-Null
 Start-Transcript -Path $logPath -Append | Out-Null
 
 try {
     if (-not (Test-Path -LiteralPath $venvPath)) {
-        & $PythonExe $PythonVersion -m venv $venvPath
+        Invoke-Native $PythonExe $PythonVersion -m venv $venvPath
     }
 
     $venvPython = Join-Path $venvPath "Scripts\python.exe"
-    & $venvPython -m pip install --upgrade pip setuptools wheel
-    & $venvPython -m pip install -r "$PSScriptRoot\requirements.txt"
+    Invoke-Native $venvPython -m pip install --upgrade pip setuptools wheel
+    Invoke-Native $venvPython -m pip install -r "$PSScriptRoot\requirements.txt"
 
     New-Item -ItemType Directory -Force -Path $serverDir | Out-Null
     Copy-Item -Force "$PSScriptRoot\server.py" $serverDir
@@ -52,7 +67,7 @@ optimize = os.environ.get("VOXCPM_OPTIMIZE", "1") != "0"
 VoxCPM.from_pretrained("openbmb/VoxCPM2", load_denoiser=False, device=device, optimize=optimize)
 print("VoxCPM model check completed")
 "@
-    & $venvPython -c $modelCheck
+    Invoke-Native $venvPython -c $modelCheck
     Write-Host "VoxCPM local setup completed: $installPath"
     Write-Host "Install log: $logPath"
 }

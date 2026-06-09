@@ -37,6 +37,15 @@ def test_voxcpm_local_installer_script_is_user_scoped_and_resumable() -> None:
     assert "openbmb/VoxCPM2" in script
 
 
+def test_voxcpm_local_installer_script_checks_native_exit_codes() -> None:
+    script = (SERVICE_DIR / "install_local.ps1").read_text(encoding="utf-8")
+
+    assert "function Invoke-Native" in script
+    assert "$LASTEXITCODE" in script
+    assert script.count("Invoke-Native") >= 5
+    assert "Command failed" in script
+
+
 def test_windows_installer_voxcpm_option_is_optional_and_non_fatal() -> None:
     installer_script = (ROOT / "build" / "build_installer.ps1").read_text(encoding="utf-8")
 

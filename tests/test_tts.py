@@ -65,6 +65,23 @@ class VoxCpmHttpProviderTests(unittest.TestCase):
         self.assertIn("service down", provider.last_error or "")
         player.play.assert_not_called()
 
+    def test_rejects_non_local_endpoint_without_http_request(self) -> None:
+        player = Mock()
+        provider = VoxCpmHttpProvider(
+            endpoint="https://example.com:443",
+            timeout_seconds=1,
+            cache_dir=Path("."),
+            audio_player=player,
+        )
+
+        with patch("app.tts.urlopen") as urlopen:
+            result = provider.speak("focus", accent=Accent.US)
+
+        self.assertFalse(result)
+        self.assertIn("local HTTP endpoint", provider.last_error or "")
+        urlopen.assert_not_called()
+        player.play.assert_not_called()
+
 
 class PronunciationServiceProviderTests(unittest.TestCase):
     def test_uses_voxcpm_provider_when_selected(self) -> None:
