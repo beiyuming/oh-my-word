@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $portableDir = Join-Path $projectRoot "dist\$Name"
 $distDir = Join-Path $projectRoot "dist"
-$stagingDir = Join-Path $projectRoot "build\installer"
+$stagingDir = Join-Path ([System.IO.Path]::GetTempPath()) ("oh-my-word-installer-build-" + [System.Guid]::NewGuid().ToString("N"))
 $payloadZipName = "$Name-portable.zip"
 $payloadZipPath = Join-Path $stagingDir $payloadZipName
 $voxcpmServiceDir = Join-Path $projectRoot "tools\voxcpm_service"
@@ -751,3 +751,4 @@ if (-not (Test-Path -LiteralPath $installerPath)) {
 }
 
 Write-Output "Installer created: $installerPath"
+Remove-Item -LiteralPath $stagingDir -Recurse -Force -ErrorAction SilentlyContinue

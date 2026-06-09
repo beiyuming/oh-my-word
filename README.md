@@ -12,6 +12,7 @@
 - 支持用户导入 JSON/CSV 词库，并可选下载推荐的 NETEM 词库
 - 使用 FSRS 管理复习间隔和 stability/difficulty 字段
 - 支持“稍后”跳过当前词，以及托盘“暂停 30 分钟”
+- 可选使用本机 VoxCPM 本地服务作为发音引擎；默认仍使用系统 Qt 离线发音
 
 ## 目录结构
 
@@ -61,6 +62,8 @@ py -3.11 main.py
 源码运行时，`storage/` 位于项目根目录；portable 或安装版运行时，`storage/` 位于 `oh-my-word-py.exe` 同级目录。
 
 `settings.json` 只保存用户配置。`oh_my_word.sqlite3` 保存卡片学习状态、近期单词、FSRS 载荷、复习日志、稍后状态和全局暂停状态。`learning_state.json` 是旧版学习状态文件；如果存在，应用会在启动时兼容导入，不会删除它。
+
+发音设置保存在 `settings.json` 中：`tts_provider` 默认为 `system_qt`，可选值 `voxcpm_local` 表示调用用户本机的 VoxCPM companion process；`voxcpm_endpoint` 第一版只接受本地 HTTP 地址（默认 `http://127.0.0.1:8808`）；`voxcpm_timeout_seconds` 默认为 15 秒。
 
 ## 词库
 
@@ -130,8 +133,20 @@ py -3.11 -m pytest tests -q
 
 安装器会用安装清单管理应用文件。用户选择已有目录时，安装器不会递归清空整个目录；卸载脚本只删除清单中的应用文件和相关快捷方式。
 
+安装器提供可选的 `Install local VoxCPM pronunciation engine` 入口，默认关闭。勾选后会在主应用文件安装完成后启动本机 VoxCPM 设置脚本，在用户目录（默认 `%LOCALAPPDATA%\OhMyWord\voxcpm`）创建独立 venv 并安装 service-only 依赖。该步骤可能下载数 GB 模型，推荐 NVIDIA GPU 8 GB+ VRAM；CPU 可用但较慢。VoxCPM 设置失败不会回滚或阻止主应用安装，应用仍保持 `system_qt` 发音引擎。
+
+## VoxCPM 本地发音
+
+VoxCPM 不部署到云端服务器。桌面应用只通过 `127.0.0.1`/`localhost` 调用用户本机运行的 companion process：
+
+```powershell
+.\.venv-voxcpm\Scripts\python.exe -m uvicorn tools.voxcpm_service.server:app --host 127.0.0.1 --port 8808
+```
+
+VoxCPM、PyTorch、CUDA、模型权重和相关依赖不进入根 `requirements.txt`，也不打包进主 EXE 或 portable payload。相关说明见 `tools/voxcpm_service/README.md`。
+
 ## 备注
 
 - 当前首版只面向 Windows。
 - 全局热键使用 Windows 原生 `RegisterHotKey` API。
-- 离线发音优先使用 `QtTextToSpeech`，并回退到任何可用的英语语音。
+- 默认离线发音优先使用 `QtTextToSpeech`，并回退到任何可用的英语语音；VoxCPM 本地服务不可用时会失败并记录错误，不会自动声称朗读成功。

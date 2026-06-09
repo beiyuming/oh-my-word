@@ -45,3 +45,26 @@ def test_windows_installer_voxcpm_option_is_optional_and_non_fatal() -> None:
     assert "Checked = false" in installer_script
     assert "VoxCPM setup failed" in installer_script
     assert "app installation completed" in installer_script
+
+
+def test_windows_installer_uses_temp_staging_instead_of_tracked_build_dir() -> None:
+    installer_script = (ROOT / "build" / "build_installer.ps1").read_text(encoding="utf-8")
+
+    assert "GetTempPath" in installer_script
+    assert '"build\\installer"' not in installer_script
+
+
+def test_stable_docs_describe_voxcpm_provider_contract() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    settings_spec = (ROOT / "docs" / "specs" / "settings-and-storage.md").read_text(encoding="utf-8")
+    tts_spec = (ROOT / "docs" / "specs" / "tray-hotkeys-tts.md").read_text(encoding="utf-8")
+    packaging_spec = (ROOT / "docs" / "specs" / "packaging-runtime.md").read_text(encoding="utf-8")
+
+    assert "tts_provider" in settings_spec
+    assert "voxcpm_endpoint" in settings_spec
+    assert "voxcpm_timeout_seconds" in settings_spec
+    assert "system_qt" in tts_spec
+    assert "voxcpm_local" in tts_spec
+    assert "127.0.0.1" in tts_spec
+    assert "VoxCPM 本地" in readme
+    assert "默认关闭" in packaging_spec

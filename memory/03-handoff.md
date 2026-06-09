@@ -34,3 +34,4 @@
 - 如果继续弹窗控制工作，先将 dated Superpowers design/plan 与当前源码和测试对比，再把漂移记录到 `memory/02-risks-blockers.md`。
 - 如果继续 FSRS + SQLite 工作，先读 `docs/specs/settings-and-storage.md`、`docs/specs/study-scheduling.md` 和 dated plan `docs/superpowers/plans/2026-06-08-fsrs-sqlite-scheduling.md`；当前实现已接入 SQLite/FSRS 主路径，但 Windows 运行时检查仍需单独执行。
 - 如果继续打包工作，编辑前检查 `build/`、`oh-my-word-py.spec` 和当前未跟踪安装器文件。当前轻量安装器已能生成 `dist/oh-my-word-setup.exe`，但真实安装/卸载交互仍需单独验证。
+- 如果继续 VoxCPM TTS 工作，当前目标是本机 optional companion process：主程序设置支持 `system_qt` 和 `voxcpm_local`，VoxCPM 通过本地 HTTP endpoint 调用 `tools/voxcpm_service`，安装器入口默认关闭且失败不应影响主安装。仍需在安装了 service-only 依赖和模型的机器上验证真实 VoxCPM 合成播放，以及安装器勾选 VoxCPM 后的长耗时部署交互。

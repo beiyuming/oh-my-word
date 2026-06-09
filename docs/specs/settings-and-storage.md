@@ -28,6 +28,9 @@
 - 卡片停留时长。
 - 稍后时长，默认 30 分钟。
 - 静音和英/美音偏好。
+- 发音 provider：`tts_provider` 默认 `system_qt`，可选 `voxcpm_local`。
+- VoxCPM 本地服务地址：`voxcpm_endpoint` 默认 `http://127.0.0.1:8808`，第一版只允许本地 HTTP endpoint。
+- VoxCPM 请求超时：`voxcpm_timeout_seconds` 默认 15 秒，规范化范围为 1 到 120 秒。
 - 朗读、详情、立刻弹出、标记掌握、认识、不认识、关闭快捷键。
 
 字段新增时必须同步：
