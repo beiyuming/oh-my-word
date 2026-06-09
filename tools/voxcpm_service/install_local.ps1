@@ -77,6 +77,8 @@ try {
     }
     $cudaAvailable = (& $venvPython -c "import torch; print('1' if torch.cuda.is_available() else '0')").Trim() -eq "1"
     Write-Host "CUDA available: $cudaAvailable"
+    $tritonAvailable = (& $venvPython -c "import importlib.util; print('1' if importlib.util.find_spec('triton') else '0')").Trim() -eq "1"
+    Write-Host "Triton available: $tritonAvailable"
 
     if ($CpuOnly) {
         $env:VOXCPM_DEVICE = "cpu"
@@ -91,18 +93,28 @@ try {
         } else {
             $env:VOXCPM_DEVICE = $Device
         }
-        if (-not $env:VOXCPM_OPTIMIZE -and $env:VOXCPM_DEVICE -like "cuda*") {
+
+        if ($cudaAvailable -and -not $tritonAvailable) {
+            Write-Host "Triton is not available; disabling VoxCPM optimize"
+            $env:VOXCPM_OPTIMIZE = "0"
+        }
+        if (-not $env:VOXCPM_OPTIMIZE -and $cudaAvailable -and $tritonAvailable) {
             $env:VOXCPM_OPTIMIZE = "1"
         }
     }
 
     $modelCheck = @"
+import traceback
 from voxcpm import VoxCPM
 import os
 device = os.environ.get("VOXCPM_DEVICE", "auto")
-optimize = os.environ.get("VOXCPM_OPTIMIZE", "1") != "0"
-VoxCPM.from_pretrained("openbmb/VoxCPM2", load_denoiser=False, device=device, optimize=optimize)
-print("VoxCPM model check completed")
+optimize = os.environ.get("VOXCPM_OPTIMIZE", "0") != "0"
+try:
+    VoxCPM.from_pretrained("openbmb/VoxCPM2", load_denoiser=False, device=device, optimize=optimize)
+    print("VoxCPM model check completed")
+except Exception:
+    traceback.print_exc()
+    raise
 "@
     Invoke-Native $venvPython -c $modelCheck
     Write-Host "VoxCPM local setup completed: $installPath"

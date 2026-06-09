@@ -11,7 +11,7 @@ from voxcpm import VoxCPM
 def get_model() -> VoxCPM:
     model_id = os.environ.get("VOXCPM_MODEL_ID", "openbmb/VoxCPM2")
     device = os.environ.get("VOXCPM_DEVICE", "auto")
-    optimize = os.environ.get("VOXCPM_OPTIMIZE", "1") != "0"
+    optimize = os.environ.get("VOXCPM_OPTIMIZE", "0") != "0"
     return VoxCPM.from_pretrained(
         model_id,
         load_denoiser=False,
