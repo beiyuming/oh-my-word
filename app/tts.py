@@ -1,9 +1,24 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
+from urllib.request import Request, urlopen
 
-from PySide6.QtCore import QObject, QLocale, Signal
+from PySide6.QtCore import QObject, QLocale, QUrl, Signal
+
+from .models import (
+    DEFAULT_VOXCPM_ENDPOINT,
+    DEFAULT_VOXCPM_TIMEOUT_SECONDS,
+    TtsProvider,
+)
+
+try:
+    from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+except ImportError:  # pragma: no cover - depends on optional Qt module
+    QAudioOutput = None  # type: ignore[assignment]
+    QMediaPlayer = None  # type: ignore[assignment]
 
 try:
     from PySide6.QtTextToSpeech import QTextToSpeech
@@ -11,28 +26,15 @@ except ImportError:  # pragma: no cover - depends on optional Qt module
     QTextToSpeech = None  # type: ignore[assignment]
 
 
-class PronunciationService(QObject):
-    """Best-effort offline TTS wrapper with English voice preference selection."""
+class QtTextToSpeechProvider:
+    """Best-effort QtTextToSpeech backend with English voice preference selection."""
 
-    availability_changed = Signal(bool)
-    error_occurred = Signal(str)
-
-    def __init__(
-        self,
-        parent: QObject | None = None,
-        *,
-        accent: Any | None = None,
-        on_error: Callable[[str], Any] | None = None,
-    ) -> None:
-        super().__init__(parent)
+    def __init__(self, owner: QObject, accent: Any | None = None) -> None:
+        self._owner = owner
         self._configured_accent = accent
         self._backend: QTextToSpeech | None = None
         self._available = False
         self._last_error: str | None = None
-
-        if on_error is not None:
-            self.error_occurred.connect(on_error)
-
         self._initialize_backend()
 
     @property
@@ -56,8 +58,7 @@ class PronunciationService(QObject):
             return False
 
         if accent is not None:
-            self._configured_accent = accent
-            self._apply_voice_preference()
+            self.set_accent(accent)
             if not self._available:
                 return False
 
@@ -79,18 +80,15 @@ class PronunciationService(QObject):
     def _initialize_backend(self) -> None:
         if QTextToSpeech is None:
             self._report_error("PySide6 QtTextToSpeech is not installed.")
-            self.availability_changed.emit(False)
             return
 
         try:
-            self._backend = QTextToSpeech(self)
+            self._backend = QTextToSpeech(self._owner)
         except Exception as exc:  # pragma: no cover - backend-specific failure
             self._report_error(f"Qt text-to-speech backend failed to initialize: {exc}")
-            self.availability_changed.emit(False)
             return
 
         self._apply_voice_preference()
-        self.availability_changed.emit(self._available)
 
     def _apply_voice_preference(self) -> None:
         if self._backend is None:
@@ -104,8 +102,6 @@ class PronunciationService(QObject):
 
         if not voices:
             self._report_error("No text-to-speech voices are available.")
-            self._available = False
-            self.availability_changed.emit(False)
             return
 
         preferred_voice = self._select_voice(voices, self._configured_accent)
@@ -114,7 +110,6 @@ class PronunciationService(QObject):
                 self._backend.setVoice(preferred_voice)
             except Exception as exc:  # pragma: no cover - backend-specific failure
                 self._report_error(f"Could not select text-to-speech voice: {exc}")
-                self.availability_changed.emit(False)
                 return
 
         self._available = True
@@ -163,4 +158,183 @@ class PronunciationService(QObject):
     def _report_error(self, message: str) -> None:
         self._last_error = message
         self._available = False
-        self.error_occurred.emit(message)
+
+
+class LocalWavPlayer(QObject):
+    def __init__(self, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._last_error: str | None = None
+        self._audio_output: QAudioOutput | None = None
+        self._player: QMediaPlayer | None = None
+        if QMediaPlayer is not None and QAudioOutput is not None:
+            self._audio_output = QAudioOutput(self)
+            self._player = QMediaPlayer(self)
+            self._player.setAudioOutput(self._audio_output)
+
+    @property
+    def last_error(self) -> str | None:
+        return self._last_error
+
+    def play(self, path: Path) -> bool:
+        if self._player is None:
+            self._last_error = "QtMultimedia audio playback is unavailable."
+            return False
+        try:
+            self._player.setSource(QUrl.fromLocalFile(str(path.resolve())))
+            self._player.play()
+        except Exception as exc:  # pragma: no cover - backend-specific failure
+            self._last_error = f"Playing synthesized audio failed: {exc}"
+            return False
+        self._last_error = None
+        return True
+
+    def stop(self) -> None:
+        if self._player is not None:
+            self._player.stop()
+
+
+class VoxCpmHttpProvider:
+    def __init__(
+        self,
+        *,
+        endpoint: str,
+        timeout_seconds: int,
+        cache_dir: Path,
+        audio_player: LocalWavPlayer | Any | None = None,
+    ) -> None:
+        self._endpoint = endpoint.rstrip("/")
+        self._timeout_seconds = timeout_seconds
+        self._cache_dir = cache_dir
+        self._audio_player = audio_player or LocalWavPlayer()
+        self._last_error: str | None = None
+
+    @property
+    def is_available(self) -> bool:
+        return True
+
+    @property
+    def last_error(self) -> str | None:
+        return self._last_error
+
+    def set_accent(self, accent: Any | None) -> None:
+        return None
+
+    def speak(self, text: str, *, accent: Any | None = None) -> bool:
+        message = text.strip()
+        if not message:
+            return False
+
+        payload = {
+            "text": message,
+            "accent": str(getattr(accent, "value", accent) or "").lower(),
+            "format": "wav",
+        }
+        request = Request(
+            f"{self._endpoint}/synthesize",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+
+        try:
+            with urlopen(request, timeout=self._timeout_seconds) as response:
+                audio_bytes = response.read()
+        except Exception as exc:
+            self._last_error = f"VoxCPM local service request failed: {exc}"
+            return False
+
+        if not audio_bytes:
+            self._last_error = "VoxCPM local service returned an empty audio response."
+            return False
+
+        try:
+            self._cache_dir.mkdir(parents=True, exist_ok=True)
+            audio_path = self._cache_dir / "voxcpm-current.wav"
+            audio_path.write_bytes(audio_bytes)
+            if not self._audio_player.play(audio_path):
+                player_error = getattr(self._audio_player, "last_error", None)
+                self._last_error = player_error or "Playing VoxCPM audio failed."
+                return False
+        except Exception as exc:
+            self._last_error = f"Playing VoxCPM audio failed: {exc}"
+            return False
+
+        self._last_error = None
+        return True
+
+    def stop(self) -> None:
+        self._audio_player.stop()
+
+
+class PronunciationService(QObject):
+    availability_changed = Signal(bool)
+    error_occurred = Signal(str)
+
+    def __init__(
+        self,
+        parent: QObject | None = None,
+        *,
+        accent: Any | None = None,
+        provider: TtsProvider = TtsProvider.SYSTEM_QT,
+        endpoint: str = DEFAULT_VOXCPM_ENDPOINT,
+        timeout_seconds: int = DEFAULT_VOXCPM_TIMEOUT_SECONDS,
+        cache_dir: Path | None = None,
+        on_error: Callable[[str], Any] | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._provider_name = provider
+        self._backend: QtTextToSpeechProvider | VoxCpmHttpProvider
+        self._backend = self._create_backend(
+            accent=accent,
+            endpoint=endpoint,
+            timeout_seconds=timeout_seconds,
+            cache_dir=cache_dir,
+        )
+
+        if on_error is not None:
+            self.error_occurred.connect(on_error)
+
+        self.availability_changed.emit(self.is_available)
+
+    @property
+    def provider(self) -> TtsProvider:
+        return self._provider_name
+
+    @property
+    def is_available(self) -> bool:
+        return self._backend.is_available
+
+    @property
+    def last_error(self) -> str | None:
+        return self._backend.last_error
+
+    def set_accent(self, accent: Any | None) -> None:
+        was_available = self.is_available
+        self._backend.set_accent(accent)
+        if self.is_available != was_available:
+            self.availability_changed.emit(self.is_available)
+
+    def speak(self, text: str, *, accent: Any | None = None) -> bool:
+        result = self._backend.speak(text, accent=accent)
+        if not result and self.last_error:
+            self.error_occurred.emit(self.last_error)
+            self.availability_changed.emit(self.is_available)
+        return result
+
+    def stop(self) -> None:
+        self._backend.stop()
+
+    def _create_backend(
+        self,
+        *,
+        accent: Any | None,
+        endpoint: str,
+        timeout_seconds: int,
+        cache_dir: Path | None,
+    ) -> QtTextToSpeechProvider | VoxCpmHttpProvider:
+        if self._provider_name is TtsProvider.VOXCPM_LOCAL:
+            return VoxCpmHttpProvider(
+                endpoint=endpoint,
+                timeout_seconds=timeout_seconds,
+                cache_dir=cache_dir or Path.cwd() / "storage" / "tts_cache",
+            )
+        return QtTextToSpeechProvider(self, accent=accent)
