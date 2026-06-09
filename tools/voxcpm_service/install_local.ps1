@@ -49,7 +49,7 @@ try {
     }
 
     $venvPython = Join-Path $venvPath "Scripts\python.exe"
-    Invoke-Native $venvPython -m pip install --upgrade pip setuptools wheel
+    Invoke-Native $venvPython -m pip install --upgrade pip wheel "setuptools<82"
     $nvidiaGpuAvailable = Test-NvidiaGpuAvailable
     Write-Host "NVIDIA GPU available: $nvidiaGpuAvailable"
 

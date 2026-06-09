@@ -66,6 +66,13 @@ def test_voxcpm_local_installer_prefers_cuda_torch_when_nvidia_is_present() -> N
     assert "Falling back to CPU torch" in script
 
 
+def test_voxcpm_local_installer_keeps_setuptools_compatible_with_torch() -> None:
+    script = (SERVICE_DIR / "install_local.ps1").read_text(encoding="utf-8")
+
+    assert "setuptools<82" in script
+    assert "pip setuptools wheel" not in script
+
+
 def test_windows_installer_voxcpm_option_is_optional_and_non_fatal() -> None:
     installer_script = (ROOT / "build" / "build_installer.ps1").read_text(encoding="utf-8")
 
