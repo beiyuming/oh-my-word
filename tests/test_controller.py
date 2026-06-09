@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QApplication, QStyle, QSystemTrayIcon
 
 from app.controller import AppController, AppPaths
 from app.fsrs_service import ProjectReviewRating
-from app.models import AppSettings, WordEntry, WordSelectionResult
+from app.models import AppSettings, TtsProvider, WordEntry, WordSelectionResult
 from app.tray import TrayController
 from app.words import WordCatalog
 
@@ -175,6 +175,40 @@ class ControllerPopupActionTests(unittest.TestCase):
 
         controller.tts.speak.assert_called_once_with("focus. Focus on review.", accent=controller.settings.accent)
         controller.study_store.record_word_pronounced.assert_called_once_with("focus", pronounced_at=ANY)
+
+    def test_pronounce_failure_does_not_record_pronounced_at(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings()
+        controller.current_word = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
+        controller.tts = Mock()
+        controller.tts.speak.return_value = False
+        controller.study_store = Mock()
+
+        controller.pronounce_text("focus. Focus on review.")
+
+        controller.tts.speak.assert_called_once_with("focus. Focus on review.", accent=controller.settings.accent)
+        controller.study_store.record_word_pronounced.assert_not_called()
+
+    def test_apply_settings_rebuilds_tts_when_provider_changes(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings()
+        controller.settings_store = Mock()
+        controller.hotkeys = Mock()
+        controller.hotkeys.registration_errors = {}
+        controller.tray = Mock()
+        controller.scheduler = Mock()
+        controller.tts = Mock()
+        old_tts = controller.tts
+
+        new_settings = AppSettings(tts_provider=TtsProvider.VOXCPM_LOCAL)
+
+        with patch("app.controller.PronunciationService") as service_class:
+            service_class.return_value = Mock()
+            controller._apply_settings(new_settings)
+
+        old_tts.stop.assert_called_once_with()
+        service_class.assert_called_once()
+        self.assertIs(controller.settings.tts_provider, TtsProvider.VOXCPM_LOCAL)
 
     def test_request_fresh_word_uses_study_store_selection(self) -> None:
         controller = AppController(self.app)

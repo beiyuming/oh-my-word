@@ -325,7 +325,7 @@ class AppController(QObject):
         self.hotkeys.start()
         self._notify_hotkey_registration_errors()
 
-        self.tts = PronunciationService(accent=self.settings.accent, on_error=self._log_warning_text)
+        self.tts = self._create_tts_service()
 
         self.scheduler = QtScheduler(
             settings_provider=lambda: self.settings,
@@ -556,10 +556,28 @@ class AppController(QObject):
     def _save_settings_from_dialog(self) -> None:
         if self.settings_window is None or self.settings_store is None:
             return
-        self.settings = self.settings_store.save(self.settings_window.get_settings())
-        self._apply_settings()
+        self._apply_settings(self.settings_store.save(self.settings_window.get_settings()))
 
-    def _apply_settings(self) -> None:
+    def _create_tts_service(self) -> PronunciationService:
+        return PronunciationService(
+            accent=self.settings.accent,
+            provider=self.settings.tts_provider,
+            endpoint=self.settings.voxcpm_endpoint,
+            timeout_seconds=self.settings.voxcpm_timeout_seconds,
+            cache_dir=self._paths.storage_dir / "tts_cache",
+            on_error=self._log_warning_text,
+        )
+
+    def _apply_settings(self, new_settings: AppSettings | None = None) -> None:
+        previous_settings = self.settings
+        target_settings = new_settings or self.settings
+        provider_changed = (
+            previous_settings.tts_provider != target_settings.tts_provider
+            or previous_settings.voxcpm_endpoint != target_settings.voxcpm_endpoint
+            or previous_settings.voxcpm_timeout_seconds != target_settings.voxcpm_timeout_seconds
+        )
+        self.settings = target_settings
+
         if self.tray is not None:
             self.tray.set_enabled(self.settings.enabled)
             self.tray.set_display_mode(self.settings.display_mode)
@@ -569,7 +587,11 @@ class AppController(QObject):
             self._notify_hotkey_registration_errors()
 
         if self.tts is not None:
-            self.tts.set_accent(self.settings.accent)
+            if provider_changed:
+                self.tts.stop()
+                self.tts = self._create_tts_service()
+            else:
+                self.tts.set_accent(self.settings.accent)
 
         if self.scheduler is not None:
             if self.settings.enabled:
