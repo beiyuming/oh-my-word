@@ -15,11 +15,15 @@ from .models import (
     DEFAULT_ACTIVITY_THRESHOLD_PER_MINUTE,
     DEFAULT_ACTIVITY_SLOWDOWN_WEIGHT,
     DEFAULT_BUSY_STOP_THRESHOLD_SECONDS,
+    DEFAULT_DISMISS_HOTKEY,
+    DEFAULT_KNOWN_HOTKEY,
     DEFAULT_MARK_MASTERED_HOTKEY,
     DEFAULT_MAX_DELAY_MINUTES,
     DEFAULT_MIN_DELAY_MINUTES,
+    DEFAULT_UNKNOWN_HOTKEY,
     DEFAULT_POPUP_DURATION_SECONDS,
     DEFAULT_PRONOUNCE_HOTKEY,
+    DEFAULT_SNOOZE_MINUTES,
     DEFAULT_TOGGLE_DETAIL_HOTKEY,
     DEFAULT_TRIGGER_NOW_HOTKEY,
     DisplayMode,
@@ -147,6 +151,10 @@ def normalize_settings(payload: Any) -> AppSettings:
             data.get("popup_duration_seconds"),
             DEFAULT_POPUP_DURATION_SECONDS,
         ),
+        snooze_minutes=_normalize_positive_int(
+            data.get("snooze_minutes"),
+            DEFAULT_SNOOZE_MINUTES,
+        ),
         mute_pronunciation=_normalize_bool(data.get("mute_pronunciation"), defaults.mute_pronunciation),
         accent=_normalize_enum(data.get("accent"), Accent, defaults.accent),
         pronounce_hotkey=_normalize_hotkey(
@@ -164,6 +172,18 @@ def normalize_settings(payload: Any) -> AppSettings:
         mark_mastered_hotkey=_normalize_hotkey(
             data.get("mark_mastered_hotkey"),
             DEFAULT_MARK_MASTERED_HOTKEY,
+        ),
+        known_hotkey=_normalize_hotkey(
+            data.get("known_hotkey"),
+            DEFAULT_KNOWN_HOTKEY,
+        ),
+        unknown_hotkey=_normalize_hotkey(
+            data.get("unknown_hotkey"),
+            DEFAULT_UNKNOWN_HOTKEY,
+        ),
+        dismiss_hotkey=_normalize_hotkey(
+            data.get("dismiss_hotkey"),
+            DEFAULT_DISMISS_HOTKEY,
         ),
     )
 
@@ -214,12 +234,16 @@ def settings_to_dict(settings: AppSettings) -> dict[str, Any]:
         "activity_threshold_per_minute": settings.activity_threshold_per_minute,
         "activity_slowdown_weight": settings.activity_slowdown_weight,
         "popup_duration_seconds": settings.popup_duration_seconds,
+        "snooze_minutes": settings.snooze_minutes,
         "mute_pronunciation": settings.mute_pronunciation,
         "accent": settings.accent.value,
         "pronounce_hotkey": settings.pronounce_hotkey,
         "toggle_detail_hotkey": settings.toggle_detail_hotkey,
         "trigger_now_hotkey": settings.trigger_now_hotkey,
         "mark_mastered_hotkey": settings.mark_mastered_hotkey,
+        "known_hotkey": settings.known_hotkey,
+        "unknown_hotkey": settings.unknown_hotkey,
+        "dismiss_hotkey": settings.dismiss_hotkey,
     }
 
 

@@ -45,6 +45,23 @@ class LoadWordCatalogTests(unittest.TestCase):
             self.assertEqual(["abandon", "derive", "keen"], [word.word for word in result.catalog.words])
             self.assertEqual(["leave behind"], result.catalog.by_word["abandon"].definitions)
 
+    def test_load_word_catalog_preserves_richer_ipa_when_later_duplicate_has_placeholder(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wordbooks_dir = Path(temp_dir)
+            self._write_wordbook(
+                wordbooks_dir / "a-first.json",
+                [self._entry("abandon", "give up")],
+            )
+            self._write_wordbook(
+                wordbooks_dir / "b-second.json",
+                [self._entry("abandon", "leave behind", ipa="/.../")],
+            )
+
+            result = load_word_catalog(wordbooks_dir)
+
+            self.assertEqual("/abandon/", result.catalog.by_word["abandon"].ipa)
+            self.assertEqual(["leave behind"], result.catalog.by_word["abandon"].definitions)
+
     def test_load_word_catalog_skips_broken_json_and_reports_issue(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             wordbooks_dir = Path(temp_dir)
@@ -205,10 +222,10 @@ class LoadWordCatalogTests(unittest.TestCase):
         path.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
 
     @staticmethod
-    def _entry(word: str, definition: str) -> dict[str, object]:
+    def _entry(word: str, definition: str, ipa: str | None = None) -> dict[str, object]:
         return {
             "word": word,
-            "ipa": f"/{word}/",
+            "ipa": ipa or f"/{word}/",
             "part_of_speech": "verb",
             "definitions": [definition],
             "example_sentence": f"Example sentence for {word}.",

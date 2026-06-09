@@ -133,6 +133,9 @@ class GlobalHotkeyService(QObject):
     toggle_details_requested = Signal()
     trigger_now_requested = Signal()
     mark_mastered_requested = Signal()
+    known_requested = Signal()
+    unknown_requested = Signal()
+    dismiss_requested = Signal()
     availability_changed = Signal(bool)
 
     DEFAULT_SEQUENCES = {
@@ -140,6 +143,9 @@ class GlobalHotkeyService(QObject):
         "toggle_details": "Ctrl+Alt+2",
         "trigger_now": "Ctrl+Alt+3",
         "mark_mastered": "Ctrl+Alt+4",
+        "known": "Ctrl+Alt+5",
+        "unknown": "Ctrl+Alt+6",
+        "dismiss": "Ctrl+Alt+7",
     }
 
     def __init__(
@@ -152,6 +158,9 @@ class GlobalHotkeyService(QObject):
         on_toggle_details: Callable[[], Any] | None = None,
         on_trigger_now: Callable[[], Any] | None = None,
         on_mark_mastered: Callable[[], Any] | None = None,
+        on_known: Callable[[], Any] | None = None,
+        on_unknown: Callable[[], Any] | None = None,
+        on_dismiss: Callable[[], Any] | None = None,
     ) -> None:
         super().__init__(parent)
         self._app = app or QApplication.instance()
@@ -179,6 +188,12 @@ class GlobalHotkeyService(QObject):
             self.trigger_now_requested.connect(on_trigger_now)
         if on_mark_mastered is not None:
             self.mark_mastered_requested.connect(on_mark_mastered)
+        if on_known is not None:
+            self.known_requested.connect(on_known)
+        if on_unknown is not None:
+            self.unknown_requested.connect(on_unknown)
+        if on_dismiss is not None:
+            self.dismiss_requested.connect(on_dismiss)
 
     @property
     def is_available(self) -> bool:
@@ -297,6 +312,12 @@ class GlobalHotkeyService(QObject):
             self.trigger_now_requested.emit()
         elif hotkey.action_name == "mark_mastered":
             self.mark_mastered_requested.emit()
+        elif hotkey.action_name == "known":
+            self.known_requested.emit()
+        elif hotkey.action_name == "unknown":
+            self.unknown_requested.emit()
+        elif hotkey.action_name == "dismiss":
+            self.dismiss_requested.emit()
 
     def _install_keyboard_hook(self) -> None:
         if self._user32 is None:

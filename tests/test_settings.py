@@ -65,12 +65,16 @@ class SettingsStoreTests(unittest.TestCase):
                         "activity_threshold_per_minute": 0,
                         "activity_slowdown_weight": -1,
                         "popup_duration_seconds": -3,
+                        "snooze_minutes": 0,
                         "mute_pronunciation": "no",
                         "accent": "AU",
                         "pronounce_hotkey": "",
                         "toggle_detail_hotkey": None,
                         "trigger_now_hotkey": "Alt+9",
                         "mark_mastered_hotkey": "",
+                        "known_hotkey": "",
+                        "unknown_hotkey": 12,
+                        "dismiss_hotkey": "",
                     }
                 ),
                 encoding="utf-8",
@@ -88,12 +92,16 @@ class SettingsStoreTests(unittest.TestCase):
             self.assertEqual(settings.activity_threshold_per_minute, 90)
             self.assertEqual(settings.activity_slowdown_weight, 100)
             self.assertEqual(settings.popup_duration_seconds, 6)
+            self.assertEqual(settings.snooze_minutes, 30)
             self.assertFalse(settings.mute_pronunciation)
             self.assertIs(settings.accent, Accent.US)
             self.assertEqual(settings.pronounce_hotkey, "Ctrl+Alt+1")
             self.assertEqual(settings.toggle_detail_hotkey, "Ctrl+Alt+2")
             self.assertEqual(settings.trigger_now_hotkey, "Alt+9")
             self.assertEqual(settings.mark_mastered_hotkey, "Ctrl+Alt+4")
+            self.assertEqual(settings.known_hotkey, "Ctrl+Alt+5")
+            self.assertEqual(settings.unknown_hotkey, "Ctrl+Alt+6")
+            self.assertEqual(settings.dismiss_hotkey, "Ctrl+Alt+7")
 
     def test_persists_pretty_utf8_json(self) -> None:
         with TemporaryDirectory() as tmp_dir:
@@ -120,6 +128,51 @@ class SettingsStoreTests(unittest.TestCase):
             settings = SettingsStore(paths).load()
 
             self.assertIs(settings.barrage_position, OverlayPosition.RANDOM)
+
+    def test_loads_random_card_position(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            paths = make_paths(tmp_dir)
+            paths.storage_dir.mkdir(parents=True, exist_ok=True)
+            paths.settings_path.write_text(
+                json.dumps({"card_position": "random"}),
+                encoding="utf-8",
+            )
+
+            settings = SettingsStore(paths).load()
+
+            self.assertIs(settings.card_position, OverlayPosition.RANDOM)
+
+    def test_persists_new_popup_action_hotkeys(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            paths = make_paths(tmp_dir)
+            store = SettingsStore(paths)
+            settings = AppSettings(
+                known_hotkey="Ctrl+Alt+8",
+                unknown_hotkey="Ctrl+Alt+9",
+                dismiss_hotkey="Ctrl+Alt+0",
+            )
+
+            reloaded = store.save(settings)
+            payload = json.loads(paths.settings_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(payload["known_hotkey"], "Ctrl+Alt+8")
+            self.assertEqual(payload["unknown_hotkey"], "Ctrl+Alt+9")
+            self.assertEqual(payload["dismiss_hotkey"], "Ctrl+Alt+0")
+            self.assertEqual(reloaded.known_hotkey, "Ctrl+Alt+8")
+            self.assertEqual(reloaded.unknown_hotkey, "Ctrl+Alt+9")
+            self.assertEqual(reloaded.dismiss_hotkey, "Ctrl+Alt+0")
+
+    def test_persists_snooze_minutes(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            paths = make_paths(tmp_dir)
+            store = SettingsStore(paths)
+            settings = AppSettings(snooze_minutes=45)
+
+            reloaded = store.save(settings)
+            payload = json.loads(paths.settings_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(payload["snooze_minutes"], 45)
+            self.assertEqual(reloaded.snooze_minutes, 45)
 
     def test_recovers_from_corrupted_file(self) -> None:
         with TemporaryDirectory() as tmp_dir:

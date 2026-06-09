@@ -307,7 +307,8 @@ def _load_word_catalog_once(wordbooks_dir: Path) -> WordCatalogLoadResult:
                 issues.append(WordbookIssue(source=str(path), message=f"Entry {index}: {exc}"))
                 continue
 
-            merged[entry.word.casefold()] = entry
+            key = entry.word.casefold()
+            merged[key] = _merge_word_entry(merged.get(key), entry)
 
     return WordCatalogLoadResult(catalog=WordCatalog.from_entries(merged.values()), issues=issues)
 
@@ -467,6 +468,21 @@ def _word_entry_to_dict(entry: WordEntry) -> dict[str, object]:
         "example_sentence": entry.example_sentence,
         "example_translation": entry.example_translation,
     }
+
+
+def _merge_word_entry(existing: WordEntry | None, incoming: WordEntry) -> WordEntry:
+    if existing is None:
+        return incoming
+    if incoming.ipa != "/.../" or existing.ipa == "/.../":
+        return incoming
+    return WordEntry(
+        word=incoming.word,
+        ipa=existing.ipa,
+        part_of_speech=incoming.part_of_speech,
+        definitions=incoming.definitions,
+        example_sentence=incoming.example_sentence,
+        example_translation=incoming.example_translation,
+    )
 
 
 def _available_import_path(wordbooks_dir: Path, source_stem: str) -> Path:

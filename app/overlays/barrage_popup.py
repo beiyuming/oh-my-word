@@ -168,6 +168,7 @@ class BarragePopup(QFrame):
     pronounce = Signal(str)
     mark_mastered = Signal(str)
     reviewed = Signal(str, bool)
+    snoozed = Signal(str)
     dismissed = Signal()
     closed = Signal()
 
@@ -193,7 +194,7 @@ class BarragePopup(QFrame):
         self.setObjectName("barragePopup")
 
         self._build_ui()
-        self.setFixedWidth(520)
+        self.setMinimumWidth(520)
 
     @property
     def current_entry(self) -> Any | None:
@@ -213,6 +214,7 @@ class BarragePopup(QFrame):
 
         self.pronounce_button.setEnabled(bool(term))
         self.mastered_button.setEnabled(bool(term))
+        self.snooze_button.setEnabled(bool(term))
         self.details_button.setEnabled(bool(details.strip()))
         self.set_details_expanded(False, pause=False)
 
@@ -245,7 +247,7 @@ class BarragePopup(QFrame):
         rect = compute_barrage_rect(self.sizeHint(), self._position_mode, anchor=anchor)
         screen = _screen_rect(anchor)
         start = QPoint(screen.right() + 12, rect.y())
-        end = QPoint(screen.x() - rect.width() - 12, rect.y())
+        end = QPoint(screen.x() - self.width() - 12, rect.y())
         self._start_drift(start, end)
 
     def _start_drift(self, start: QPoint, end: QPoint) -> None:
@@ -316,13 +318,13 @@ class BarragePopup(QFrame):
         surface_layout.setContentsMargins(16, 12, 16, 12)
         surface_layout.setSpacing(8)
 
-        row = QHBoxLayout()
-        row.setSpacing(10)
-        surface_layout.addLayout(row)
+        header_row = QHBoxLayout()
+        header_row.setSpacing(10)
+        surface_layout.addLayout(header_row)
 
         text_column = QVBoxLayout()
         text_column.setSpacing(2)
-        row.addLayout(text_column, stretch=1)
+        header_row.addLayout(text_column, stretch=1)
 
         top_row = QHBoxLayout()
         top_row.setSpacing(8)
@@ -330,10 +332,13 @@ class BarragePopup(QFrame):
 
         self.word_label = QLabel("单词", surface)
         self.word_label.setObjectName("wordLabel")
+        self.word_label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
         top_row.addWidget(self.word_label)
 
         self.ipa_label = QLabel("/.../", surface)
         self.ipa_label.setObjectName("ipaLabel")
+        self.ipa_label.setMinimumWidth(96)
+        self.ipa_label.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Preferred)
         top_row.addWidget(self.ipa_label)
         top_row.addStretch(1)
 
@@ -343,36 +348,46 @@ class BarragePopup(QFrame):
         self.summary_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         text_column.addWidget(self.summary_label)
 
+        action_row = QHBoxLayout()
+        action_row.setSpacing(8)
+        action_row.setContentsMargins(0, 0, 0, 0)
+        header_row.addLayout(action_row)
+
         self.pronounce_button = QPushButton("朗读", surface)
         self.pronounce_button.setObjectName("miniButton")
         self.pronounce_button.clicked.connect(self._emit_pronounce)
-        row.addWidget(self.pronounce_button)
+        action_row.addWidget(self.pronounce_button)
 
         self.details_button = QPushButton("详情", surface)
         self.details_button.setObjectName("miniButton")
         self.details_button.clicked.connect(self._toggle_details)
-        row.addWidget(self.details_button)
+        action_row.addWidget(self.details_button)
 
         self.known_button = QPushButton("认识", surface)
         self.known_button.setObjectName("miniButton")
         self.known_button.clicked.connect(lambda: self._emit_reviewed(True))
-        row.addWidget(self.known_button)
+        action_row.addWidget(self.known_button)
 
         self.unknown_button = QPushButton("不认识", surface)
         self.unknown_button.setObjectName("miniButton")
         self.unknown_button.clicked.connect(lambda: self._emit_reviewed(False))
-        row.addWidget(self.unknown_button)
+        action_row.addWidget(self.unknown_button)
+
+        self.snooze_button = QPushButton("稍后", surface)
+        self.snooze_button.setObjectName("miniButton")
+        self.snooze_button.clicked.connect(self._emit_snoozed)
+        action_row.addWidget(self.snooze_button)
 
         self.mastered_button = QPushButton("已掌握", surface)
         self.mastered_button.setObjectName("miniButton")
         self.mastered_button.clicked.connect(self._emit_mastered)
-        row.addWidget(self.mastered_button)
+        action_row.addWidget(self.mastered_button)
 
         self.close_button = QPushButton("×", surface)
         self.close_button.setObjectName("closeButton")
         self.close_button.setFixedSize(24, 24)
         self.close_button.clicked.connect(self._request_dismiss)
-        row.addWidget(self.close_button)
+        action_row.addWidget(self.close_button)
 
         self.details_container = QFrame(surface)
         self.details_container.setObjectName("detailsContainer")
@@ -473,6 +488,11 @@ class BarragePopup(QFrame):
         term = self._entry_term()
         if term:
             self.reviewed.emit(term, known)
+
+    def _emit_snoozed(self) -> None:
+        term = self._entry_term()
+        if term:
+            self.snoozed.emit(term)
 
     def _request_dismiss(self) -> None:
         self.dismissed.emit()

@@ -1,0 +1,103 @@
+# 设置与存储契约
+
+## 范围
+
+本 spec 约束 `app/settings.py`、`app/settings_window.py`、运行期 `storage/` 文件，以及 `app/study_store.py` 的 SQLite 存储层。它是设置 schema、学习状态迁移和运行期数据保护的稳定来源。
+
+## 当前运行期文件
+
+- `storage/settings.json`：仅保存用户配置。
+- `storage/oh_my_word.sqlite3`：保存卡片学习状态、近期词、FSRS 载荷、复习日志、稍后状态和全局暂停状态。
+- `storage/learning_state.json`：旧版学习状态文件；如果存在，启动时兼容导入，不删除。
+- `storage/app.log`：运行日志。
+
+规则：
+
+- 不要为了测试或迁移方便删除用户运行期文件。
+- 测试必须使用临时路径或 fixture。
+- 损坏 JSON 应走规范化回退路径并记录 warning，不应要求用户手动清理。
+
+## 当前设置字段
+
+`AppSettings` 当前保存：
+
+- 启停状态和显示模式。
+- 卡片/弹幕位置。
+- 最小/最大弹出间隔。
+- 用户活动阈值和延迟权重。
+- 卡片停留时长。
+- 稍后时长，默认 30 分钟。
+- 静音和英/美音偏好。
+- 朗读、详情、立刻弹出、标记掌握、认识、不认识、关闭快捷键。
+
+字段新增时必须同步：
+
+- `AppSettings` 默认值。
+- `normalize_settings()`。
+- `settings_to_dict()`。
+- 设置窗口读写。
+- 单元测试。
+- README 或相关 stable spec。
+
+## SQLite 学习存储
+
+学习状态位于：
+
+```text
+storage/oh_my_word.sqlite3
+```
+
+`settings.json` 继续保存设置，不迁入数据库。
+
+SQLite 表：
+
+- `schema_migrations`：迁移版本和应用时间。
+- `cards`：每个单词的学习/调度状态。
+- `recent_words`：近期展示窗口。
+- `review_log`：正式复习日志。
+- `app_state`：全局暂停等运行状态。
+
+`cards` 必须包含以下稳定字段：
+
+- `word`
+- `due_at`
+- `state`
+- `stability`
+- `difficulty`
+- `reps`
+- `lapses`
+- `mastered`
+- `suspended`
+- `snoozed_until`
+- `last_shown_at`
+- `last_pronounced_at`
+- `last_expanded_at`
+- `last_reviewed_at`
+- `last_rating`
+- `show_count`
+- `known_count`
+- `unknown_count`
+- `fsrs_payload_json`
+- `created_at`
+- `updated_at`
+
+必须创建索引覆盖 due 查询、snooze 查询、mastered/suspended 过滤、近期展示排序和 review log 按词查询。
+
+## 旧 JSON 迁移
+
+启动时如果存在旧 `storage/learning_state.json`：
+
+- 数据库未标记已导入时，读取旧 JSON。
+- 使用现有学习状态规范化逻辑解析。
+- 将每个 `progress` 条目导入 `cards`。
+- 将旧 `recent_words` 导入 `recent_words`。
+- 写入 `app_state.legacy_learning_state_imported_at`。
+- 不删除、不覆盖旧 JSON。
+
+旧 JSON 损坏时记录 warning，继续使用空数据库状态。
+
+## 验证
+
+- 设置 schema 变更运行 settings 测试和完整测试。
+- SQLite schema 或迁移变更必须有幂等初始化测试和旧 JSON 导入测试。
+- 运行期数据迁移不能在真实 `storage/` 上做破坏性验证。

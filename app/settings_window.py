@@ -142,7 +142,7 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("oh my word 设置")
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setModal(False)
-        self.resize(440, 520)
+        self.resize(440, 660)
 
         self._display_mode = QComboBox(self)
         self._card_position = QComboBox(self)
@@ -155,10 +155,14 @@ class SettingsDialog(QDialog):
         self._activity_threshold = QSpinBox(self)
         self._activity_weight = QSpinBox(self)
         self._popup_duration = QSpinBox(self)
+        self._snooze_minutes = QSpinBox(self)
         self._pronounce_hotkey = HotkeyCaptureButton(self)
         self._toggle_detail_hotkey = HotkeyCaptureButton(self)
         self._trigger_now_hotkey = HotkeyCaptureButton(self)
         self._mark_mastered_hotkey = HotkeyCaptureButton(self)
+        self._known_hotkey = HotkeyCaptureButton(self)
+        self._unknown_hotkey = HotkeyCaptureButton(self)
+        self._dismiss_hotkey = HotkeyCaptureButton(self)
         self._import_wordbook_button = QPushButton("导入词库...", self)
         self._download_wordbook_button = QPushButton("下载推荐考研词库", self)
         self._buttons = QDialogButtonBox(
@@ -196,10 +200,14 @@ class SettingsDialog(QDialog):
         self._activity_threshold.setValue(settings.activity_threshold_per_minute)
         self._activity_weight.setValue(settings.activity_slowdown_weight)
         self._popup_duration.setValue(settings.popup_duration_seconds)
+        self._snooze_minutes.setValue(settings.snooze_minutes)
         self._pronounce_hotkey.set_sequence(settings.pronounce_hotkey)
         self._toggle_detail_hotkey.set_sequence(settings.toggle_detail_hotkey)
         self._trigger_now_hotkey.set_sequence(settings.trigger_now_hotkey)
         self._mark_mastered_hotkey.set_sequence(settings.mark_mastered_hotkey)
+        self._known_hotkey.set_sequence(settings.known_hotkey)
+        self._unknown_hotkey.set_sequence(settings.unknown_hotkey)
+        self._dismiss_hotkey.set_sequence(settings.dismiss_hotkey)
         self._refresh_toggle_labels()
 
     def get_settings(self) -> AppSettings:
@@ -213,12 +221,16 @@ class SettingsDialog(QDialog):
             activity_threshold_per_minute=self._activity_threshold.value(),
             activity_slowdown_weight=self._activity_weight.value(),
             popup_duration_seconds=self._popup_duration.value(),
+            snooze_minutes=self._snooze_minutes.value(),
             mute_pronunciation=self._mute.isChecked(),
             accent=self._accent.currentData(),
             pronounce_hotkey=self._pronounce_hotkey.sequence() or AppSettings().pronounce_hotkey,
             toggle_detail_hotkey=self._toggle_detail_hotkey.sequence() or AppSettings().toggle_detail_hotkey,
             trigger_now_hotkey=self._trigger_now_hotkey.sequence() or AppSettings().trigger_now_hotkey,
             mark_mastered_hotkey=self._mark_mastered_hotkey.sequence() or AppSettings().mark_mastered_hotkey,
+            known_hotkey=self._known_hotkey.sequence() or AppSettings().known_hotkey,
+            unknown_hotkey=self._unknown_hotkey.sequence() or AppSettings().unknown_hotkey,
+            dismiss_hotkey=self._dismiss_hotkey.sequence() or AppSettings().dismiss_hotkey,
         )
 
     def _build_ui(self) -> None:
@@ -242,8 +254,7 @@ class SettingsDialog(QDialog):
         for member in DisplayMode:
             self._display_mode.addItem(_ENUM_LABELS.get(member, member.value), member)
         for member in OverlayPosition:
-            if member is not OverlayPosition.RANDOM:
-                self._card_position.addItem(_ENUM_LABELS.get(member, member.value), member)
+            self._card_position.addItem(_ENUM_LABELS.get(member, member.value), member)
             self._barrage_position.addItem(_ENUM_LABELS.get(member, member.value), member)
         for member in Accent:
             self._accent.addItem(_ENUM_LABELS.get(member, member.value), member)
@@ -261,6 +272,9 @@ class SettingsDialog(QDialog):
         self._popup_duration.setRange(1, 600)
         self._popup_duration.setSuffix(" 秒")
 
+        self._snooze_minutes.setRange(1, 240)
+        self._snooze_minutes.setSuffix(" 分钟")
+
         form.addRow(self._enabled)
         form.addRow(self._mute)
         form.addRow("显示方式", self._display_mode)
@@ -272,10 +286,14 @@ class SettingsDialog(QDialog):
         form.addRow("高频操作阈值", self._activity_threshold)
         form.addRow("频率影响权重", self._activity_weight)
         form.addRow("卡片停留时长", self._popup_duration)
+        form.addRow("稍后时长", self._snooze_minutes)
         form.addRow("朗读快捷键", self._pronounce_hotkey)
         form.addRow("展开详情快捷键", self._toggle_detail_hotkey)
         form.addRow("立刻弹出快捷键", self._trigger_now_hotkey)
         form.addRow("标记掌握快捷键", self._mark_mastered_hotkey)
+        form.addRow("认识快捷键", self._known_hotkey)
+        form.addRow("不认识快捷键", self._unknown_hotkey)
+        form.addRow("关闭快捷键", self._dismiss_hotkey)
         form.addRow("词库", self._import_wordbook_button)
         form.addRow("", self._download_wordbook_button)
 

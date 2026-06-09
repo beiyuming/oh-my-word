@@ -23,6 +23,7 @@ class TrayController(QObject):
     trigger_now_requested = Signal()
     switch_display_mode_requested = Signal()
     open_settings_requested = Signal()
+    snooze_app_requested = Signal()
     exit_requested = Signal()
 
     def __init__(
@@ -35,6 +36,7 @@ class TrayController(QObject):
         on_trigger_now: Callable[[], Any] | None = None,
         on_switch_display_mode: Callable[[], Any] | None = None,
         on_open_settings: Callable[[], Any] | None = None,
+        on_snooze_app: Callable[[], Any] | None = None,
         on_exit: Callable[[], Any] | None = None,
     ) -> None:
         super().__init__(parent)
@@ -47,11 +49,13 @@ class TrayController(QObject):
         self._trigger_now_action = QAction("立刻弹出一个", self)
         self._switch_display_mode_action = QAction(self)
         self._open_settings_action = QAction("打开设置", self)
+        self._snooze_app_action = QAction("暂停 30 分钟", self)
         self._exit_action = QAction("退出", self)
 
         self._menu.addAction(self._toggle_enabled_action)
         self._menu.addAction(self._trigger_now_action)
         self._menu.addAction(self._switch_display_mode_action)
+        self._menu.addAction(self._snooze_app_action)
         self._menu.addSeparator()
         self._menu.addAction(self._open_settings_action)
         self._menu.addAction(self._exit_action)
@@ -64,6 +68,7 @@ class TrayController(QObject):
         self._trigger_now_action.triggered.connect(self.trigger_now_requested.emit)
         self._switch_display_mode_action.triggered.connect(self.switch_display_mode_requested.emit)
         self._open_settings_action.triggered.connect(self.open_settings_requested.emit)
+        self._snooze_app_action.triggered.connect(self.snooze_app_requested.emit)
         self._exit_action.triggered.connect(self.exit_requested.emit)
         self._tray_icon.activated.connect(self._handle_activation)
 
@@ -75,6 +80,8 @@ class TrayController(QObject):
             self.switch_display_mode_requested.connect(on_switch_display_mode)
         if on_open_settings is not None:
             self.open_settings_requested.connect(on_open_settings)
+        if on_snooze_app is not None:
+            self.snooze_app_requested.connect(on_snooze_app)
         if on_exit is not None:
             self.exit_requested.connect(on_exit)
 

@@ -40,8 +40,6 @@ $pythonArgs += @(
     $Name,
     "--add-data",
     "data;data",
-    "--add-data",
-    "storage;storage",
     $EntryPoint
 )
 

@@ -3,10 +3,11 @@ from __future__ import annotations
 import ctypes
 import logging
 import random
+import sys
 from collections import deque
 from ctypes import wintypes
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from time import monotonic
 from typing import Any
@@ -26,10 +27,11 @@ from .models import (
 )
 from .overlays.barrage_popup import BarragePopup
 from .overlays.card_popup import CardPopup
-from .review import apply_review_result
+from .fsrs_service import ProjectReviewRating
 from .scheduler import QtScheduler, SchedulerAction, SchedulerActionKind
 from .settings import LearningStateStore, SettingsStore, ensure_storage_layout, setup_app_logger
 from .settings_window import SettingsDialog
+from .study_store import StudyStore
 from .tray import TrayController
 from .tts import PronunciationService
 from .words import (
@@ -52,13 +54,31 @@ class AppPaths:
     storage_dir: Path
     settings_path: Path
     learning_state_path: Path
+    study_db_path: Path
     log_path: Path
 
     @classmethod
     def from_root(cls, root_dir: Path) -> "AppPaths":
-        data_dir = root_dir / "data"
+        return cls.from_roots(root_dir=root_dir, data_root=root_dir, storage_root=root_dir)
+
+    @classmethod
+    def from_runtime(cls) -> "AppPaths":
+        if getattr(sys, "frozen", False):
+            executable_dir = Path(sys.executable).resolve().parent
+            resource_root = Path(getattr(sys, "_MEIPASS", executable_dir)).resolve()
+            return cls.from_roots(
+                root_dir=executable_dir,
+                data_root=resource_root,
+                storage_root=executable_dir,
+            )
+
+        return cls.from_root(Path(__file__).resolve().parent.parent)
+
+    @classmethod
+    def from_roots(cls, *, root_dir: Path, data_root: Path, storage_root: Path) -> "AppPaths":
+        data_dir = data_root / "data"
         wordbooks_dir = data_dir / "wordbooks"
-        storage_dir = root_dir / "storage"
+        storage_dir = storage_root / "storage"
         return cls(
             root_dir=root_dir,
             data_dir=data_dir,
@@ -66,6 +86,7 @@ class AppPaths:
             storage_dir=storage_dir,
             settings_path=storage_dir / "settings.json",
             learning_state_path=storage_dir / "learning_state.json",
+            study_db_path=storage_dir / "oh_my_word.sqlite3",
             log_path=storage_dir / "app.log",
         )
 
@@ -223,8 +244,8 @@ class AppController(QObject):
     def __init__(self, app: QApplication) -> None:
         super().__init__()
         self._app = app
-        self._root_dir = Path(__file__).resolve().parent.parent
-        self._paths = AppPaths.from_root(self._root_dir)
+        self._paths = AppPaths.from_runtime()
+        self._root_dir = self._paths.root_dir
         self._rng = random.Random()
         self._activity_monitor = ActivityMonitor()
         self._app_icon = self._build_app_icon()
@@ -237,6 +258,7 @@ class AppController(QObject):
         self.logger: logging.Logger | None = None
         self.settings_store: SettingsStore | None = None
         self.learning_state_store: LearningStateStore | None = None
+        self.study_store: StudyStore | None = None
         self.catalog = WordCatalog(words=(), by_word={})
 
         self.scheduler: QtScheduler[WordEntry] | None = None
@@ -258,6 +280,9 @@ class AppController(QObject):
         self.logger = setup_app_logger(self._paths)
         self.settings_store = SettingsStore(self._paths, self.logger)
         self.learning_state_store = LearningStateStore(self._paths, self.logger)
+        self.study_store = StudyStore(self._paths.study_db_path, logger=self.logger)
+        self.study_store.initialize()
+        self.study_store.import_legacy_learning_state(self._paths.learning_state_path)
         self._activity_monitor.start()
 
         self.settings = self.settings_store.load()
@@ -278,6 +303,7 @@ class AppController(QObject):
             on_trigger_now=self._on_trigger_now_requested,
             on_switch_display_mode=self._on_switch_display_mode_requested,
             on_open_settings=self.show_settings_window,
+            on_snooze_app=self.snooze_app_for_default_duration,
             on_exit=self.exit,
         )
         self._app.setWindowIcon(self._app_icon)
@@ -292,6 +318,9 @@ class AppController(QObject):
             on_toggle_details=self.toggle_details,
             on_trigger_now=self._on_trigger_now_requested,
             on_mark_mastered=self.mark_current_word_mastered,
+            on_known=lambda: self.review_visible_popup(known=True),
+            on_unknown=lambda: self.review_visible_popup(known=False),
+            on_dismiss=self.dismiss_visible_popup,
         )
         self.hotkeys.start()
         self._notify_hotkey_registration_errors()
@@ -384,10 +413,16 @@ class AppController(QObject):
         if self.current_word is None or self.settings.mute_pronunciation or self.tts is None:
             return
         if self.tts.speak(self.current_word.word, accent=self.settings.accent):
-            self._update_progress(
-                self.current_word.word,
-                lambda progress: replace(progress, last_pronounced_at=_now_iso()),
-            )
+            if self.study_store is not None:
+                self.study_store.record_word_pronounced(
+                    self.current_word.word,
+                    pronounced_at=datetime.now(UTC),
+                )
+            else:
+                self._update_progress(
+                    self.current_word.word,
+                    lambda progress: replace(progress, last_pronounced_at=_now_iso()),
+                )
 
     def toggle_details(self) -> None:
         if self.current_word is None:
@@ -398,16 +433,22 @@ class AppController(QObject):
             self.barrage_popup.set_details_expanded(not self.barrage_popup.is_details_expanded())
         else:
             return
-        self._update_progress(
-            self.current_word.word,
-            lambda progress: replace(progress, last_expanded_at=_now_iso()),
-        )
+        if self.study_store is not None:
+            self.study_store.record_word_expanded(self.current_word.word, expanded_at=datetime.now(UTC))
+        else:
+            self._update_progress(
+                self.current_word.word,
+                lambda progress: replace(progress, last_expanded_at=_now_iso()),
+            )
 
     def mark_current_word_mastered(self) -> None:
         if self.current_word is None:
             return
         word_key = self.current_word.word
-        self._update_progress(word_key, lambda progress: replace(progress, mastered=True))
+        if self.study_store is not None:
+            self.study_store.mark_word_mastered(word_key)
+        else:
+            self._update_progress(word_key, lambda progress: replace(progress, mastered=True))
         self._close_active_popup()
         if self.tray is not None:
             self.tray.show_message("oh my word", f"已将「{word_key}」标记为已掌握。")
@@ -440,14 +481,26 @@ class AppController(QObject):
             self._request_fresh_word(manual=(action.reason == "manual"))
 
     def _request_fresh_word(self, *, manual: bool) -> None:
-        result = select_next_word(
-            self.catalog,
-            self.learning_state,
-            recent_window_size=DEFAULT_RECENT_WORDS_WINDOW,
-            rng=self._rng,
-        )
+        if self.study_store is not None:
+            result = self.study_store.select_next_word(
+                self.catalog.words,
+                now=datetime.now(UTC),
+                recent_window_size=DEFAULT_RECENT_WORDS_WINDOW,
+            )
+        else:
+            result = select_next_word(
+                self.catalog,
+                self.learning_state,
+                recent_window_size=DEFAULT_RECENT_WORDS_WINDOW,
+                rng=self._rng,
+            )
         if result.word is None:
-            if result.should_pause and self.scheduler is not None and not manual:
+            if (
+                result.should_pause
+                and self.scheduler is not None
+                and not manual
+                and result.notice_key == "all_mastered"
+            ):
                 self.scheduler.pause()
             if self.tray is not None and result.notice_key == "all_mastered":
                 self.tray.show_message("oh my word", "未掌握的单词已经学完了。")
@@ -482,15 +535,18 @@ class AppController(QObject):
                 position=self.settings.barrage_position,
             )
 
-        self._update_progress(
-            word.word,
-            lambda progress: replace(
-                progress,
-                show_count=progress.show_count + 1,
-                last_shown_at=_now_iso(),
-            ),
-            update_recent=True,
-        )
+        if self.study_store is not None:
+            self.study_store.record_word_shown(word.word, shown_at=datetime.now(UTC))
+        else:
+            self._update_progress(
+                word.word,
+                lambda progress: replace(
+                    progress,
+                    show_count=progress.show_count + 1,
+                    last_shown_at=_now_iso(),
+                ),
+                update_recent=True,
+            )
 
     def _save_settings_from_dialog(self) -> None:
         if self.settings_window is None or self.settings_store is None:
@@ -522,11 +578,13 @@ class AppController(QObject):
         self.card_popup.pronounce.connect(lambda _: self.pronounce_current_word())
         self.card_popup.mark_mastered.connect(lambda _: self.mark_current_word_mastered())
         self.card_popup.reviewed.connect(lambda _, known: self.review_current_word(known=known))
+        self.card_popup.snoozed.connect(lambda _: self.snooze_visible_popup())
         self.card_popup.dismissed.connect(self._on_popup_dismissed)
         self.card_popup.closed.connect(self._on_popup_closed)
         self.barrage_popup.pronounce.connect(lambda _: self.pronounce_current_word())
         self.barrage_popup.mark_mastered.connect(lambda _: self.mark_current_word_mastered())
         self.barrage_popup.reviewed.connect(lambda _, known: self.review_current_word(known=known))
+        self.barrage_popup.snoozed.connect(lambda _: self.snooze_visible_popup())
         self.barrage_popup.dismissed.connect(self._on_popup_dismissed)
         self.barrage_popup.closed.connect(self._on_popup_closed)
 
@@ -534,11 +592,46 @@ class AppController(QObject):
         if self.current_word is None:
             return
         word = self.current_word
-        self._update_progress(
-            word.word,
-            lambda progress: apply_review_result(progress, known=known),
-        )
+        if self.study_store is not None:
+            self.study_store.review_word(
+                word.word,
+                ProjectReviewRating.KNOWN if known else ProjectReviewRating.UNKNOWN,
+                reviewed_at=datetime.now(UTC),
+            )
+        else:
+            from .review import apply_review_result
+
+            self._update_progress(
+                word.word,
+                lambda progress: apply_review_result(progress, known=known),
+            )
         self._close_active_popup()
+
+    def review_visible_popup(self, *, known: bool) -> None:
+        if self.current_word is None or not self._has_active_popup():
+            return
+        self.review_current_word(known=known)
+
+    def dismiss_visible_popup(self) -> None:
+        if self.current_word is None or not self._has_active_popup():
+            return
+        self._close_active_popup()
+
+    def snooze_visible_popup(self) -> None:
+        if self.current_word is None or not self._has_active_popup() or self.study_store is None:
+            return
+        until = datetime.now(UTC) + timedelta(minutes=self.settings.snooze_minutes)
+        self.study_store.snooze_word(self.current_word.word, until=until)
+        self._close_active_popup()
+
+    def snooze_app_for_default_duration(self) -> None:
+        if self.study_store is None:
+            return
+        until = datetime.now(UTC) + timedelta(minutes=self.settings.snooze_minutes)
+        self.study_store.snooze_app(until=until)
+        self._close_active_popup()
+        if self.tray is not None:
+            self.tray.show_message("oh my word", f"已暂停 {self.settings.snooze_minutes} 分钟。")
 
     def _hotkey_sequences(self) -> dict[str, str]:
         return {
@@ -546,6 +639,9 @@ class AppController(QObject):
             "toggle_details": self.settings.toggle_detail_hotkey,
             "trigger_now": self.settings.trigger_now_hotkey,
             "mark_mastered": self.settings.mark_mastered_hotkey,
+            "known": self.settings.known_hotkey,
+            "unknown": self.settings.unknown_hotkey,
+            "dismiss": self.settings.dismiss_hotkey,
         }
 
     def _on_toggle_enabled_requested(self, enabled: bool) -> None:
@@ -630,6 +726,9 @@ class AppController(QObject):
             "toggle_details": "展开详情",
             "trigger_now": "立刻弹出",
             "mark_mastered": "标记掌握",
+            "known": "认识",
+            "unknown": "不认识",
+            "dismiss": "关闭",
             "service": "快捷键服务",
         }
         details = "；".join(
@@ -659,7 +758,11 @@ class AppController(QObject):
         return QIcon()
 
     def _tray_ready(self) -> bool:
-        return self.tray is not None and not self.tray.tray_icon.icon().isNull()
+        return (
+            self.tray is not None
+            and self.tray.tray_icon.isSystemTrayAvailable()
+            and not self.tray.tray_icon.icon().isNull()
+        )
 
 
 def _now_iso() -> str:

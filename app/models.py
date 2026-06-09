@@ -28,12 +28,16 @@ DEFAULT_BUSY_STOP_THRESHOLD_SECONDS = 8
 DEFAULT_ACTIVITY_THRESHOLD_PER_MINUTE = 90
 DEFAULT_ACTIVITY_SLOWDOWN_WEIGHT = 100
 DEFAULT_POPUP_DURATION_SECONDS = 6
+DEFAULT_SNOOZE_MINUTES = 30
 DEFAULT_RECENT_WORDS_LIMIT = 20
 
 DEFAULT_PRONOUNCE_HOTKEY = "Ctrl+Alt+1"
 DEFAULT_TOGGLE_DETAIL_HOTKEY = "Ctrl+Alt+2"
 DEFAULT_TRIGGER_NOW_HOTKEY = "Ctrl+Alt+3"
 DEFAULT_MARK_MASTERED_HOTKEY = "Ctrl+Alt+4"
+DEFAULT_KNOWN_HOTKEY = "Ctrl+Alt+5"
+DEFAULT_UNKNOWN_HOTKEY = "Ctrl+Alt+6"
+DEFAULT_DISMISS_HOTKEY = "Ctrl+Alt+7"
 
 
 @dataclass(slots=True)
@@ -48,12 +52,16 @@ class AppSettings:
     activity_threshold_per_minute: int = DEFAULT_ACTIVITY_THRESHOLD_PER_MINUTE
     activity_slowdown_weight: int = DEFAULT_ACTIVITY_SLOWDOWN_WEIGHT
     popup_duration_seconds: int = DEFAULT_POPUP_DURATION_SECONDS
+    snooze_minutes: int = DEFAULT_SNOOZE_MINUTES
     mute_pronunciation: bool = False
     accent: Accent = Accent.US
     pronounce_hotkey: str = DEFAULT_PRONOUNCE_HOTKEY
     toggle_detail_hotkey: str = DEFAULT_TOGGLE_DETAIL_HOTKEY
     trigger_now_hotkey: str = DEFAULT_TRIGGER_NOW_HOTKEY
     mark_mastered_hotkey: str = DEFAULT_MARK_MASTERED_HOTKEY
+    known_hotkey: str = DEFAULT_KNOWN_HOTKEY
+    unknown_hotkey: str = DEFAULT_UNKNOWN_HOTKEY
+    dismiss_hotkey: str = DEFAULT_DISMISS_HOTKEY
 
 
 @dataclass(slots=True)

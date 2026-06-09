@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from random import randint
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt, QTimer, Signal
@@ -25,6 +26,7 @@ _POSITION_ALIASES = {
     "bottom_right": "bottom_right",
     "top_center": "top_center",
     "center": "center",
+    "random": "random",
 }
 
 
@@ -154,6 +156,13 @@ def compute_popup_rect(size: QSize, position: Any, anchor: QPoint | None = None,
     elif position_name == "center":
         x = screen.x() + (screen.width() - width) // 2
         y = screen.y() + (screen.height() - height) // 2
+    elif position_name == "random":
+        min_x = screen.x() + margin
+        max_x = max(min_x, screen.right() - width - margin)
+        min_y = screen.y() + margin
+        max_y = max(min_y, screen.bottom() - height - margin)
+        x = randint(min_x, max_x)
+        y = randint(min_y, max_y)
     else:
         x = screen.right() - width - margin
         y = screen.bottom() - height - margin
@@ -168,6 +177,7 @@ class CardPopup(QFrame):
     toggle_details = Signal(bool)
     mark_mastered = Signal(str)
     reviewed = Signal(str, bool)
+    snoozed = Signal(str)
     dismissed = Signal()
     closed = Signal()
 
@@ -219,6 +229,7 @@ class CardPopup(QFrame):
         self.details_button.setEnabled(bool(details.strip()))
         self.mastered_button.setEnabled(bool(term))
         self.pronounce_button.setEnabled(bool(term))
+        self.snooze_button.setEnabled(bool(term))
 
         self._refresh_layout_size()
 
@@ -357,6 +368,10 @@ class CardPopup(QFrame):
         self.unknown_button.clicked.connect(lambda: self._emit_reviewed(False))
         actions.addWidget(self.unknown_button)
 
+        self.snooze_button = QPushButton("稍后", card)
+        self.snooze_button.clicked.connect(self._emit_snoozed)
+        actions.addWidget(self.snooze_button)
+
         self.mastered_button = QPushButton("已掌握", card)
         self.mastered_button.clicked.connect(self._emit_mastered)
         actions.addWidget(self.mastered_button)
@@ -468,6 +483,11 @@ class CardPopup(QFrame):
         term = self._entry_term()
         if term:
             self.reviewed.emit(term, known)
+
+    def _emit_snoozed(self) -> None:
+        term = self._entry_term()
+        if term:
+            self.snoozed.emit(term)
 
     def _request_dismiss(self) -> None:
         self.dismissed.emit()
