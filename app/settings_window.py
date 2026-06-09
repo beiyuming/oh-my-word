@@ -11,13 +11,14 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
-from .models import Accent, AppSettings, DisplayMode, OverlayPosition
+from .models import Accent, AppSettings, DisplayMode, OverlayPosition, TtsProvider
 
 
 _ENUM_LABELS = {
@@ -30,6 +31,8 @@ _ENUM_LABELS = {
     OverlayPosition.RANDOM: "随机位置",
     Accent.UK: "英音",
     Accent.US: "美音",
+    TtsProvider.SYSTEM_QT: "系统离线发音",
+    TtsProvider.VOXCPM_LOCAL: "VoxCPM 本地服务",
 }
 
 
@@ -148,6 +151,9 @@ class SettingsDialog(QDialog):
         self._card_position = QComboBox(self)
         self._barrage_position = QComboBox(self)
         self._accent = QComboBox(self)
+        self._tts_provider = QComboBox(self)
+        self._voxcpm_endpoint = QLineEdit(self)
+        self._voxcpm_timeout = QSpinBox(self)
         self._enabled = QCheckBox(self)
         self._mute = QCheckBox(self)
         self._min_delay = QSpinBox(self)
@@ -195,6 +201,9 @@ class SettingsDialog(QDialog):
         self._set_enum_value(self._card_position, settings.card_position)
         self._set_enum_value(self._barrage_position, settings.barrage_position)
         self._set_enum_value(self._accent, settings.accent)
+        self._set_enum_value(self._tts_provider, settings.tts_provider)
+        self._voxcpm_endpoint.setText(settings.voxcpm_endpoint)
+        self._voxcpm_timeout.setValue(settings.voxcpm_timeout_seconds)
         self._min_delay.setValue(settings.min_delay_minutes)
         self._max_delay.setValue(settings.max_delay_minutes)
         self._activity_threshold.setValue(settings.activity_threshold_per_minute)
@@ -213,9 +222,13 @@ class SettingsDialog(QDialog):
     def get_settings(self) -> AppSettings:
         return AppSettings(
             enabled=self._enabled.isChecked(),
-            display_mode=self._display_mode.currentData(),
-            card_position=self._card_position.currentData(),
-            barrage_position=self._barrage_position.currentData(),
+            display_mode=self._current_enum_value(self._display_mode, DisplayMode, AppSettings().display_mode),
+            card_position=self._current_enum_value(self._card_position, OverlayPosition, AppSettings().card_position),
+            barrage_position=self._current_enum_value(
+                self._barrage_position,
+                OverlayPosition,
+                AppSettings().barrage_position,
+            ),
             min_delay_minutes=self._min_delay.value(),
             max_delay_minutes=self._max_delay.value(),
             activity_threshold_per_minute=self._activity_threshold.value(),
@@ -223,7 +236,10 @@ class SettingsDialog(QDialog):
             popup_duration_seconds=self._popup_duration.value(),
             snooze_minutes=self._snooze_minutes.value(),
             mute_pronunciation=self._mute.isChecked(),
-            accent=self._accent.currentData(),
+            accent=self._current_enum_value(self._accent, Accent, AppSettings().accent),
+            tts_provider=self._current_enum_value(self._tts_provider, TtsProvider, AppSettings().tts_provider),
+            voxcpm_endpoint=self._voxcpm_endpoint.text().strip() or AppSettings().voxcpm_endpoint,
+            voxcpm_timeout_seconds=self._voxcpm_timeout.value(),
             pronounce_hotkey=self._pronounce_hotkey.sequence() or AppSettings().pronounce_hotkey,
             toggle_detail_hotkey=self._toggle_detail_hotkey.sequence() or AppSettings().toggle_detail_hotkey,
             trigger_now_hotkey=self._trigger_now_hotkey.sequence() or AppSettings().trigger_now_hotkey,
@@ -258,6 +274,8 @@ class SettingsDialog(QDialog):
             self._barrage_position.addItem(_ENUM_LABELS.get(member, member.value), member)
         for member in Accent:
             self._accent.addItem(_ENUM_LABELS.get(member, member.value), member)
+        for member in TtsProvider:
+            self._tts_provider.addItem(_ENUM_LABELS.get(member, member.value), member)
 
         for spin in (self._min_delay, self._max_delay):
             spin.setRange(1, 240)
@@ -275,12 +293,19 @@ class SettingsDialog(QDialog):
         self._snooze_minutes.setRange(1, 240)
         self._snooze_minutes.setSuffix(" 分钟")
 
+        self._voxcpm_endpoint.setPlaceholderText(AppSettings().voxcpm_endpoint)
+        self._voxcpm_timeout.setRange(1, 120)
+        self._voxcpm_timeout.setSuffix(" 秒")
+
         form.addRow(self._enabled)
         form.addRow(self._mute)
         form.addRow("显示方式", self._display_mode)
         form.addRow("卡片位置", self._card_position)
         form.addRow("弹幕位置", self._barrage_position)
         form.addRow("发音口音", self._accent)
+        form.addRow("发音引擎", self._tts_provider)
+        form.addRow("VoxCPM 地址", self._voxcpm_endpoint)
+        form.addRow("VoxCPM 超时", self._voxcpm_timeout)
         form.addRow("最短间隔", self._min_delay)
         form.addRow("最长间隔", self._max_delay)
         form.addRow("高频操作阈值", self._activity_threshold)
@@ -308,6 +333,16 @@ class SettingsDialog(QDialog):
             if combo.itemData(index) == value:
                 combo.setCurrentIndex(index)
                 return
+
+    @staticmethod
+    def _current_enum_value(combo: QComboBox, enum_type: Any, default: object) -> object:
+        data = combo.currentData()
+        if isinstance(data, enum_type):
+            return data
+        try:
+            return enum_type(data)
+        except (TypeError, ValueError):
+            return default
 
     def _refresh_toggle_labels(self) -> None:
         self._enabled.setText(
