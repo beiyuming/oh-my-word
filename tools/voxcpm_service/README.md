@@ -1,0 +1,30 @@
+# VoxCPM Local Companion Process
+
+This local process is optional and runs on the user's own computer. It is not a cloud server and is not part of the desktop app installer. It keeps VoxCPM, PyTorch, model checkpoints, and GPU runtime dependencies outside the PySide/PyInstaller process.
+
+The process uses the VoxCPM Python API internally. The desktop app talks to it through `http://127.0.0.1:8808` so the GUI remains stable even if model loading or synthesis fails.
+
+## Install
+
+```powershell
+py -3.11 -m venv .venv-voxcpm
+.\.venv-voxcpm\Scripts\python.exe -m pip install -r tools\voxcpm_service\requirements.txt
+```
+
+## Run
+
+```powershell
+$env:VOXCPM_MODEL_ID = "openbmb/VoxCPM2"
+$env:VOXCPM_DEVICE = "auto"
+.\.venv-voxcpm\Scripts\python.exe -m uvicorn tools.voxcpm_service.server:app --host 127.0.0.1 --port 8808
+```
+
+The desktop app should use `http://127.0.0.1:8808` as the VoxCPM endpoint.
+
+## Check
+
+```powershell
+curl.exe http://127.0.0.1:8808/health
+```
+
+The first synthesis request may be slow because model weights can be downloaded and loaded by VoxCPM.
