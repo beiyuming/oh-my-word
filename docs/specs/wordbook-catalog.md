@@ -35,7 +35,7 @@ data/wordbooks/
 - 后加载文件覆盖更早文件。
 - 如果后加载词条的 IPA 是占位值，而旧词条有更完整 IPA，应保留旧 IPA。
 - 如果没有可用词库，应用会重新创建默认 `kaoyan_core.json`。
-- `zz_kaoyan_enriched.json` 可作为个人使用的考研增强覆盖层；来源、过滤规则和授权注意事项记录在 `data/wordbooks/SOURCES.md`。
+- 当前仓库默认只保留 `zz_kaoyan_enriched.json` 作为完整考研词库。该文件以 NETEM 5528 词为基准，补充 IPA 和例句；来源、补全规则和授权注意事项记录在 `data/wordbooks/SOURCES.md`。
 
 ## 导入
 
@@ -59,6 +59,8 @@ data/wordbooks/
 - 原始数据：`https://raw.githubusercontent.com/exam-data/NETEMVocabulary/master/netem_full_list.json`
 - 许可证：`CC BY-NC-SA 4.0`
 - 本地目标：`data/wordbooks/kaoyan_full.json`
+
+该下载目标是用户可选导入文件。默认仓库可以不跟踪 `kaoyan_full.json`，因为 `zz_kaoyan_enriched.json` 已包含完整基准词表。
 
 下载前必须在 UI 中显示来源、许可证和目标路径，并要求用户确认。
 

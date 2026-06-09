@@ -23,6 +23,8 @@
 - 2026-06-09 打包/安装器实现核验：`py -3.11 -m pytest tests -q` 通过，结果为 68 个测试通过。
 - 2026-06-09 打包/安装器实现核验：`.\build\build_exe.ps1` 成功生成 `dist/oh-my-word-py/oh-my-word-py.exe`；`.\build\build_installer.ps1 -SkipPortableBuild` 成功生成 `dist/oh-my-word-setup.exe`。
 - 2026-06-09 打包/安装器实现核验：安装器 payload 未包含 `storage/`，包含 `_internal/data/wordbooks/` 词库；未执行真实安装交互或卸载交互。
+- 2026-06-09 例句展示与朗读文本修复：`py -3.11 -m pytest tests -q` 通过，结果为 73 个测试通过；未执行 Windows 桌面视觉检查或真实 TTS 听音检查。
+- 2026-06-09 默认词库整理：`data/wordbooks/` 默认只保留 `zz_kaoyan_enriched.json` 和 `SOURCES.md`；增强词库覆盖 5528 条，缺音标 0，空/占位例句 0；`py -3.11 -m pytest tests -q` 通过，结果为 74 个测试通过。
 - 后续代码变更的默认完整验证命令仍为 `py -3.11 -m pytest tests -q`。
 - 对 UI、托盘、热键或打包变更，还必须执行 Windows 运行时检查；如果没有执行，必须明确说明。
 

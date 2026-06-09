@@ -44,7 +44,7 @@ py -3.11 main.py
 
 ## 默认热键
 
-- `Ctrl+Alt+1`：朗读当前单词
+- `Ctrl+Alt+1`：朗读当前单词和英文例句
 - `Ctrl+Alt+2`：切换弹窗详情
 - `Ctrl+Alt+3`：立即触发下一个单词
 - `Ctrl+Alt+4`：将当前单词标记为已掌握
@@ -69,7 +69,7 @@ py -3.11 main.py
 - 后加载文件会覆盖更早文件中的重复单词。
 - 损坏的 JSON 文件会被跳过并写入日志。
 - 如果没有可用词库，应用会重新创建默认的 `kaoyan_core.json`。
-- `zz_kaoyan_enriched.json` 是个人使用的考研增强覆盖层，提供音标和例句；来源见 `data/wordbooks/SOURCES.md`。
+- 当前仓库默认只保留 `zz_kaoyan_enriched.json` 作为完整考研词库，覆盖 5528 个词条，并提供音标和例句；来源见 `data/wordbooks/SOURCES.md`。
 - 设置页可以导入本地 JSON 或 CSV 词库，并转换为应用的本地 JSON 格式。
 - 设置页可以在确认弹窗后下载推荐 NETEM 词库；确认弹窗会显示来源、许可证和目标路径。
 
@@ -93,7 +93,7 @@ py -3.11 main.py
 - 来源：`https://github.com/exam-data/NETEMVocabulary`
 - 原始数据：`https://raw.githubusercontent.com/exam-data/NETEMVocabulary/master/netem_full_list.json`
 - 词库许可证：`CC BY-NC-SA 4.0`
-- 本地目标：`data/wordbooks/kaoyan_full.json`
+- 本地目标：`data/wordbooks/kaoyan_full.json`（可选下载文件，不是当前默认内置词库）
 
 ## 测试
 

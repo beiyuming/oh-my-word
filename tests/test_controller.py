@@ -163,6 +163,19 @@ class ControllerPopupActionTests(unittest.TestCase):
         controller.study_store.snooze_app.assert_called_once_with(until=ANY)
         controller._close_active_popup.assert_called_once_with()
 
+    def test_pronounce_text_reads_supplied_popup_text_and_records_current_word(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings()
+        controller.current_word = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
+        controller.tts = Mock()
+        controller.tts.speak.return_value = True
+        controller.study_store = Mock()
+
+        controller.pronounce_text("focus. Focus on review.")
+
+        controller.tts.speak.assert_called_once_with("focus. Focus on review.", accent=controller.settings.accent)
+        controller.study_store.record_word_pronounced.assert_called_once_with("focus", pronounced_at=ANY)
+
     def test_request_fresh_word_uses_study_store_selection(self) -> None:
         controller = AppController(self.app)
         entry = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus now.", "现在专注。")

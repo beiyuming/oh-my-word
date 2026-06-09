@@ -10,9 +10,15 @@ def test_enriched_kaoyan_wordbook_has_pronunciation_and_examples() -> None:
     entries = json.loads(path.read_text(encoding="utf-8"))
 
     assert isinstance(entries, list)
-    assert len(entries) >= 4500
-    assert _missing_ipa_count(entries) <= 5
-    assert _placeholder_example_count(entries) <= 100
+    assert len(entries) == 5528
+    assert _missing_ipa_count(entries) == 0
+    assert _placeholder_example_count(entries) == 0
+
+
+def test_default_wordbooks_keep_only_enriched_kaoyan_json() -> None:
+    json_files = sorted(path.name for path in Path("data/wordbooks").glob("*.json"))
+
+    assert json_files == ["zz_kaoyan_enriched.json"]
 
 
 def _missing_ipa_count(entries: list[object]) -> int:

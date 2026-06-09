@@ -38,6 +38,8 @@
 
 TTS 使用 `QtTextToSpeech`，优先选择英语 voice，并根据设置偏好英音或美音。TTS 不可用时记录错误，不阻塞应用启动。
 
+朗读按钮和默认朗读热键应朗读当前单词加英文例句：`word. example_sentence`。如果词条没有有效英文例句，则只朗读单词。不要把 `example_translation` 送入英语 TTS。
+
 朗读成功后，controller 记录当前词 `last_pronounced_at`。静音设置开启时不朗读。
 
 ## 验证

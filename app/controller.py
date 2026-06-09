@@ -410,9 +410,14 @@ class AppController(QObject):
             )
 
     def pronounce_current_word(self) -> None:
+        if self.current_word is None:
+            return
+        self.pronounce_text(_pronunciation_text(self.current_word))
+
+    def pronounce_text(self, text: str) -> None:
         if self.current_word is None or self.settings.mute_pronunciation or self.tts is None:
             return
-        if self.tts.speak(self.current_word.word, accent=self.settings.accent):
+        if self.tts.speak(text, accent=self.settings.accent):
             if self.study_store is not None:
                 self.study_store.record_word_pronounced(
                     self.current_word.word,
@@ -575,13 +580,13 @@ class AppController(QObject):
 
     def _wire_overlay_signals(self) -> None:
         assert self.card_popup is not None and self.barrage_popup is not None
-        self.card_popup.pronounce.connect(lambda _: self.pronounce_current_word())
+        self.card_popup.pronounce.connect(self.pronounce_text)
         self.card_popup.mark_mastered.connect(lambda _: self.mark_current_word_mastered())
         self.card_popup.reviewed.connect(lambda _, known: self.review_current_word(known=known))
         self.card_popup.snoozed.connect(lambda _: self.snooze_visible_popup())
         self.card_popup.dismissed.connect(self._on_popup_dismissed)
         self.card_popup.closed.connect(self._on_popup_closed)
-        self.barrage_popup.pronounce.connect(lambda _: self.pronounce_current_word())
+        self.barrage_popup.pronounce.connect(self.pronounce_text)
         self.barrage_popup.mark_mastered.connect(lambda _: self.mark_current_word_mastered())
         self.barrage_popup.reviewed.connect(lambda _, known: self.review_current_word(known=known))
         self.barrage_popup.snoozed.connect(lambda _: self.snooze_visible_popup())
@@ -767,3 +772,9 @@ class AppController(QObject):
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _pronunciation_text(entry: WordEntry) -> str:
+    if entry.example_sentence and entry.example_sentence.strip() and entry.example_sentence.casefold() != entry.word.casefold():
+        return f"{entry.word}. {entry.example_sentence.strip()}"
+    return entry.word

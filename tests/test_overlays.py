@@ -48,6 +48,29 @@ class CardPopupGeometryTests(unittest.TestCase):
 
         self.assertEqual(captured, ["focus"])
 
+    def test_card_popup_details_include_example_sentence_and_translation(self) -> None:
+        popup = CardPopup()
+        self.addCleanup(popup.deleteLater)
+        entry = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
+
+        popup.set_entry(entry)
+
+        self.assertIn("例句", popup.details_label.text())
+        self.assertIn("Focus on review.", popup.details_label.text())
+        self.assertIn("专注复习。", popup.details_label.text())
+
+    def test_card_popup_pronounce_emits_word_and_example_sentence(self) -> None:
+        popup = CardPopup()
+        self.addCleanup(popup.deleteLater)
+        entry = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
+        captured: list[str] = []
+        popup.pronounce.connect(captured.append)
+
+        popup.set_entry(entry)
+        popup.pronounce_button.click()
+
+        self.assertEqual(captured, ["focus. Focus on review."])
+
 
 class BarragePopupGeometryTests(unittest.TestCase):
     @classmethod
@@ -89,3 +112,26 @@ class BarragePopupGeometryTests(unittest.TestCase):
         popup.snooze_button.click()
 
         self.assertEqual(captured, ["focus"])
+
+    def test_barrage_popup_details_include_example_sentence_and_translation(self) -> None:
+        popup = BarragePopup()
+        self.addCleanup(popup.deleteLater)
+        entry = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
+
+        popup.set_entry(entry)
+
+        self.assertIn("例句", popup.details_label.text())
+        self.assertIn("Focus on review.", popup.details_label.text())
+        self.assertIn("专注复习。", popup.details_label.text())
+
+    def test_barrage_popup_pronounce_emits_word_and_example_sentence(self) -> None:
+        popup = BarragePopup()
+        self.addCleanup(popup.deleteLater)
+        entry = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
+        captured: list[str] = []
+        popup.pronounce.connect(captured.append)
+
+        popup.set_entry(entry)
+        popup.pronounce_button.click()
+
+        self.assertEqual(captured, ["focus. Focus on review."])

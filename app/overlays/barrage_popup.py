@@ -109,7 +109,13 @@ def _details_text(entry: Any) -> str:
         detail_lines.append("释义")
         detail_lines.extend(f"- {line}" for line in definitions)
 
-    for label, attr in (("例句", "examples"), ("短语", "phrases"), ("备注", "notes")):
+    example_lines = _example_lines(entry)
+    if example_lines:
+        detail_lines.append("")
+        detail_lines.append("例句")
+        detail_lines.extend(f"- {line}" for line in example_lines)
+
+    for label, attr in (("短语", "phrases"), ("备注", "notes")):
         lines = _coerce_lines(getattr(entry, attr, None))
         if lines:
             detail_lines.append("")
@@ -117,6 +123,29 @@ def _details_text(entry: Any) -> str:
             detail_lines.extend(f"- {line}" for line in lines)
 
     return "\n".join(detail_lines).strip() or "暂无更多详情。"
+
+
+def _example_lines(entry: Any) -> list[str]:
+    lines: list[str] = []
+    for line in (
+        _first_text(entry, "example_sentence", "sentence", "example"),
+        _first_text(entry, "example_translation", "example_cn", "translation_example"),
+    ):
+        if line and line not in lines:
+            lines.append(line)
+
+    for line in _coerce_lines(getattr(entry, "examples", None)):
+        if line not in lines:
+            lines.append(line)
+    return lines
+
+
+def _pronunciation_text(entry: Any) -> str:
+    term = _first_text(entry, "term", "word", "text")
+    example_sentence = _first_text(entry, "example_sentence", "sentence", "example")
+    if term and example_sentence and example_sentence.casefold() != term.casefold():
+        return f"{term}. {example_sentence}"
+    return term or example_sentence
 
 
 def _screen_rect(anchor: QPoint | None = None) -> QRect:
@@ -475,9 +504,11 @@ class BarragePopup(QFrame):
         return _first_text(self._entry, "term", "word", "text")
 
     def _emit_pronounce(self) -> None:
-        term = self._entry_term()
-        if term:
-            self.pronounce.emit(term)
+        if self._entry is None:
+            return
+        text = _pronunciation_text(self._entry)
+        if text:
+            self.pronounce.emit(text)
 
     def _emit_mastered(self) -> None:
         term = self._entry_term()
