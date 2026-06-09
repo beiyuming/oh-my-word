@@ -3,7 +3,9 @@ param(
     [string]$PythonExe = "py",
     [string]$PythonVersion = "-3.11",
     [string]$Device = "auto",
+    [string]$TorchCudaIndexUrl = "https://download.pytorch.org/whl/cu130",
     [switch]$CpuOnly,
+    [switch]$SkipCudaTorchInstall,
     [switch]$UseHfMirror
 )
 
@@ -28,6 +30,16 @@ function Invoke-Native {
     }
 }
 
+function Test-NvidiaGpuAvailable {
+    $nvidiaSmi = Get-Command "nvidia-smi.exe" -ErrorAction SilentlyContinue
+    if ($null -eq $nvidiaSmi) {
+        return $false
+    }
+
+    & $nvidiaSmi.Source -L | Out-Null
+    return $LASTEXITCODE -eq 0
+}
+
 New-Item -ItemType Directory -Force -Path $installPath | Out-Null
 Start-Transcript -Path $logPath -Append | Out-Null
 
@@ -38,6 +50,20 @@ try {
 
     $venvPython = Join-Path $venvPath "Scripts\python.exe"
     Invoke-Native $venvPython -m pip install --upgrade pip setuptools wheel
+    $nvidiaGpuAvailable = Test-NvidiaGpuAvailable
+    Write-Host "NVIDIA GPU available: $nvidiaGpuAvailable"
+
+    if ($nvidiaGpuAvailable -and -not $CpuOnly -and -not $SkipCudaTorchInstall) {
+        try {
+            Write-Host "Installing CUDA PyTorch from $TorchCudaIndexUrl"
+            Invoke-Native $venvPython -m pip install --upgrade --force-reinstall torch torchaudio --index-url $TorchCudaIndexUrl
+        }
+        catch {
+            Write-Host "CUDA PyTorch install failed: $($_.Exception.Message)"
+            Write-Host "Falling back to CPU torch"
+        }
+    }
+
     Invoke-Native $venvPython -m pip install -r "$PSScriptRoot\requirements.txt"
 
     New-Item -ItemType Directory -Force -Path $serverDir | Out-Null
@@ -57,6 +83,9 @@ try {
         $env:VOXCPM_OPTIMIZE = "0"
     } else {
         if ($Device -eq "auto" -and -not $cudaAvailable) {
+            if ($nvidiaGpuAvailable) {
+                Write-Host "NVIDIA GPU detected, but CUDA PyTorch is unavailable. Falling back to CPU torch"
+            }
             $env:VOXCPM_DEVICE = "cpu"
             $env:VOXCPM_OPTIMIZE = "0"
         } else {

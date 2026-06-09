@@ -55,6 +55,17 @@ def test_voxcpm_local_installer_disables_optimize_without_cuda() -> None:
     assert "CUDA available" in script
 
 
+def test_voxcpm_local_installer_prefers_cuda_torch_when_nvidia_is_present() -> None:
+    script = (SERVICE_DIR / "install_local.ps1").read_text(encoding="utf-8")
+
+    assert "TorchCudaIndexUrl" in script
+    assert "https://download.pytorch.org/whl/cu130" in script
+    assert "nvidia-smi" in script
+    assert "torch torchaudio" in script
+    assert "CUDA PyTorch install failed" in script
+    assert "Falling back to CPU torch" in script
+
+
 def test_windows_installer_voxcpm_option_is_optional_and_non_fatal() -> None:
     installer_script = (ROOT / "build" / "build_installer.ps1").read_text(encoding="utf-8")
 
