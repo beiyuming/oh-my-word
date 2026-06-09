@@ -22,6 +22,11 @@ class Accent(str, Enum):
     US = "us"
 
 
+class TtsProvider(str, Enum):
+    SYSTEM_QT = "system_qt"
+    VOXCPM_LOCAL = "voxcpm_local"
+
+
 DEFAULT_MIN_DELAY_MINUTES = 8
 DEFAULT_MAX_DELAY_MINUTES = 20
 DEFAULT_BUSY_STOP_THRESHOLD_SECONDS = 8
@@ -30,6 +35,8 @@ DEFAULT_ACTIVITY_SLOWDOWN_WEIGHT = 100
 DEFAULT_POPUP_DURATION_SECONDS = 6
 DEFAULT_SNOOZE_MINUTES = 30
 DEFAULT_RECENT_WORDS_LIMIT = 20
+DEFAULT_VOXCPM_ENDPOINT = "http://127.0.0.1:8808"
+DEFAULT_VOXCPM_TIMEOUT_SECONDS = 15
 
 DEFAULT_PRONOUNCE_HOTKEY = "Ctrl+Alt+1"
 DEFAULT_TOGGLE_DETAIL_HOTKEY = "Ctrl+Alt+2"
@@ -55,6 +62,9 @@ class AppSettings:
     snooze_minutes: int = DEFAULT_SNOOZE_MINUTES
     mute_pronunciation: bool = False
     accent: Accent = Accent.US
+    tts_provider: TtsProvider = TtsProvider.SYSTEM_QT
+    voxcpm_endpoint: str = DEFAULT_VOXCPM_ENDPOINT
+    voxcpm_timeout_seconds: int = DEFAULT_VOXCPM_TIMEOUT_SECONDS
     pronounce_hotkey: str = DEFAULT_PRONOUNCE_HOTKEY
     toggle_detail_hotkey: str = DEFAULT_TOGGLE_DETAIL_HOTKEY
     trigger_now_hotkey: str = DEFAULT_TRIGGER_NOW_HOTKEY

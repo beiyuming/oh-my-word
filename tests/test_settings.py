@@ -6,8 +6,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from app.models import Accent, AppSettings, DisplayMode, LearningState, OverlayPosition, WordProgress
-from app.settings import LearningStateStore, SettingsStore, setup_app_logger
+from app.models import (
+    Accent,
+    AppSettings,
+    DisplayMode,
+    LearningState,
+    OverlayPosition,
+    TtsProvider,
+    WordProgress,
+)
+from app.settings import LearningStateStore, SettingsStore, settings_to_dict, setup_app_logger
 
 
 @dataclass(slots=True)
@@ -39,6 +47,13 @@ def make_paths(tmp_dir: str) -> _TestPaths:
 
 
 class SettingsStoreTests(unittest.TestCase):
+    def test_tts_provider_defaults_to_system_qt(self) -> None:
+        settings = AppSettings()
+
+        self.assertIs(settings.tts_provider, TtsProvider.SYSTEM_QT)
+        self.assertEqual(settings.voxcpm_endpoint, "http://127.0.0.1:8808")
+        self.assertEqual(settings.voxcpm_timeout_seconds, 15)
+
     def test_loads_defaults_when_missing(self) -> None:
         with TemporaryDirectory() as tmp_dir:
             paths = make_paths(tmp_dir)
@@ -102,6 +117,61 @@ class SettingsStoreTests(unittest.TestCase):
             self.assertEqual(settings.known_hotkey, "Ctrl+Alt+5")
             self.assertEqual(settings.unknown_hotkey, "Ctrl+Alt+6")
             self.assertEqual(settings.dismiss_hotkey, "Ctrl+Alt+7")
+
+    def test_normalizes_tts_provider_settings(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            paths = make_paths(tmp_dir)
+            paths.storage_dir.mkdir(parents=True, exist_ok=True)
+            paths.settings_path.write_text(
+                json.dumps(
+                    {
+                        "tts_provider": "voxcpm_local",
+                        "voxcpm_endpoint": "http://localhost:8808/",
+                        "voxcpm_timeout_seconds": 31,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            settings = SettingsStore(paths).load()
+
+            self.assertIs(settings.tts_provider, TtsProvider.VOXCPM_LOCAL)
+            self.assertEqual(settings.voxcpm_endpoint, "http://localhost:8808")
+            self.assertEqual(settings.voxcpm_timeout_seconds, 31)
+
+    def test_rejects_non_local_voxcpm_endpoint(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            paths = make_paths(tmp_dir)
+            paths.storage_dir.mkdir(parents=True, exist_ok=True)
+            paths.settings_path.write_text(
+                json.dumps(
+                    {
+                        "tts_provider": "voxcpm_local",
+                        "voxcpm_endpoint": "https://example.com/tts",
+                        "voxcpm_timeout_seconds": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            settings = SettingsStore(paths).load()
+
+            self.assertIs(settings.tts_provider, TtsProvider.VOXCPM_LOCAL)
+            self.assertEqual(settings.voxcpm_endpoint, "http://127.0.0.1:8808")
+            self.assertEqual(settings.voxcpm_timeout_seconds, 15)
+
+    def test_persists_tts_provider_settings(self) -> None:
+        payload = settings_to_dict(
+            AppSettings(
+                tts_provider=TtsProvider.VOXCPM_LOCAL,
+                voxcpm_endpoint="http://localhost:8810",
+                voxcpm_timeout_seconds=22,
+            )
+        )
+
+        self.assertEqual(payload["tts_provider"], "voxcpm_local")
+        self.assertEqual(payload["voxcpm_endpoint"], "http://localhost:8810")
+        self.assertEqual(payload["voxcpm_timeout_seconds"], 22)
 
     def test_persists_pretty_utf8_json(self) -> None:
         with TemporaryDirectory() as tmp_dir:

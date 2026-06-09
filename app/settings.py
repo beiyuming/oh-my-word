@@ -8,6 +8,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 from .models import (
     Accent,
@@ -26,9 +27,12 @@ from .models import (
     DEFAULT_SNOOZE_MINUTES,
     DEFAULT_TOGGLE_DETAIL_HOTKEY,
     DEFAULT_TRIGGER_NOW_HOTKEY,
+    DEFAULT_VOXCPM_ENDPOINT,
+    DEFAULT_VOXCPM_TIMEOUT_SECONDS,
     DisplayMode,
     LearningState,
     OverlayPosition,
+    TtsProvider,
     WordProgress,
 )
 
@@ -157,6 +161,15 @@ def normalize_settings(payload: Any) -> AppSettings:
         ),
         mute_pronunciation=_normalize_bool(data.get("mute_pronunciation"), defaults.mute_pronunciation),
         accent=_normalize_enum(data.get("accent"), Accent, defaults.accent),
+        tts_provider=_normalize_enum(data.get("tts_provider"), TtsProvider, defaults.tts_provider),
+        voxcpm_endpoint=_normalize_local_http_endpoint(
+            data.get("voxcpm_endpoint"),
+            defaults.voxcpm_endpoint,
+        ),
+        voxcpm_timeout_seconds=_normalize_timeout_seconds(
+            data.get("voxcpm_timeout_seconds"),
+            DEFAULT_VOXCPM_TIMEOUT_SECONDS,
+        ),
         pronounce_hotkey=_normalize_hotkey(
             data.get("pronounce_hotkey"),
             DEFAULT_PRONOUNCE_HOTKEY,
@@ -237,6 +250,9 @@ def settings_to_dict(settings: AppSettings) -> dict[str, Any]:
         "snooze_minutes": settings.snooze_minutes,
         "mute_pronunciation": settings.mute_pronunciation,
         "accent": settings.accent.value,
+        "tts_provider": settings.tts_provider.value,
+        "voxcpm_endpoint": settings.voxcpm_endpoint,
+        "voxcpm_timeout_seconds": settings.voxcpm_timeout_seconds,
         "pronounce_hotkey": settings.pronounce_hotkey,
         "toggle_detail_hotkey": settings.toggle_detail_hotkey,
         "trigger_now_hotkey": settings.trigger_now_hotkey,
@@ -336,6 +352,24 @@ def _normalize_bool(value: Any, default: bool) -> bool:
 
 def _normalize_positive_int(value: Any, default: int) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else default
+
+
+def _normalize_local_http_endpoint(value: Any, default: str = DEFAULT_VOXCPM_ENDPOINT) -> str:
+    text = _normalize_optional_text(value) or default
+    parsed = urlparse(text)
+    hostname = (parsed.hostname or "").lower()
+    if parsed.scheme != "http":
+        return default
+    if hostname not in {"127.0.0.1", "localhost", "::1"}:
+        return default
+    if parsed.port is None:
+        return default
+    return text.rstrip("/")
+
+
+def _normalize_timeout_seconds(value: Any, default: int) -> int:
+    timeout = _normalize_positive_int(value, default)
+    return min(max(timeout, 1), 120)
 
 
 def _normalize_non_negative_int(value: Any, default: int) -> int:
