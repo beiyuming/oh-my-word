@@ -46,6 +46,15 @@ def test_voxcpm_local_installer_script_checks_native_exit_codes() -> None:
     assert "Command failed" in script
 
 
+def test_voxcpm_local_installer_disables_optimize_without_cuda() -> None:
+    script = (SERVICE_DIR / "install_local.ps1").read_text(encoding="utf-8")
+
+    assert "torch.cuda.is_available()" in script
+    assert "$cudaAvailable" in script
+    assert '$env:VOXCPM_OPTIMIZE = "0"' in script
+    assert "CUDA available" in script
+
+
 def test_windows_installer_voxcpm_option_is_optional_and_non_fatal() -> None:
     installer_script = (ROOT / "build" / "build_installer.ps1").read_text(encoding="utf-8")
 

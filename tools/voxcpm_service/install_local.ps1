@@ -49,12 +49,20 @@ try {
     if ($UseHfMirror) {
         $env:HF_ENDPOINT = "https://hf-mirror.com"
     }
+    $cudaAvailable = (& $venvPython -c "import torch; print('1' if torch.cuda.is_available() else '0')").Trim() -eq "1"
+    Write-Host "CUDA available: $cudaAvailable"
+
     if ($CpuOnly) {
         $env:VOXCPM_DEVICE = "cpu"
         $env:VOXCPM_OPTIMIZE = "0"
     } else {
-        $env:VOXCPM_DEVICE = $Device
-        if (-not $env:VOXCPM_OPTIMIZE) {
+        if ($Device -eq "auto" -and -not $cudaAvailable) {
+            $env:VOXCPM_DEVICE = "cpu"
+            $env:VOXCPM_OPTIMIZE = "0"
+        } else {
+            $env:VOXCPM_DEVICE = $Device
+        }
+        if (-not $env:VOXCPM_OPTIMIZE -and $env:VOXCPM_DEVICE -like "cuda*") {
             $env:VOXCPM_OPTIMIZE = "1"
         }
     }
