@@ -252,13 +252,6 @@ internal static class Program
                 Location = new Point(452, 224),
                 Size = new Size(88, 28)
             };
-            voxcpmModelCachePathBox.TextChanged += delegate(object textSender, EventArgs textArgs)
-            {
-                if (!updatingVoxCpmDefaults)
-                {
-                    voxCpmModelCachePathEdited = true;
-                }
-            };
             browseVoxCpmInstallButton.Click += BrowseVoxCpmInstallPath;
 
             var voxCpmModelCachePathLabel = new Label
@@ -273,6 +266,13 @@ internal static class Program
                 Text = defaultVoxCpmModelCacheRoot,
                 Location = new Point(38, 280),
                 Size = new Size(402, 24)
+            };
+            voxcpmModelCachePathBox.TextChanged += delegate(object textSender, EventArgs textArgs)
+            {
+                if (!updatingVoxCpmDefaults)
+                {
+                    voxCpmModelCachePathEdited = true;
+                }
             };
 
             var browseVoxCpmModelCacheButton = new Button

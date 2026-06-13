@@ -67,6 +67,79 @@ function Invoke-Native {
     }
 }
 
+function Get-PythonRuntimeCandidate {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Label
+    )
+
+    try {
+        $probeArgs = @()
+        if ($Arguments.Count -gt 0) {
+            $probeArgs += $Arguments
+        }
+        $probeArgs += @("-c", "import sys; print('{}.{}'.format(sys.version_info[0], sys.version_info[1]))")
+        $probeOutput = & $FilePath @probeArgs 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            return $null
+        }
+
+        $versionText = ($probeOutput | Select-Object -Last 1).Trim()
+        if ([string]::IsNullOrWhiteSpace($versionText)) {
+            return $null
+        }
+
+        $versionParts = $versionText.Split('.')
+        if ($versionParts.Length -lt 2) {
+            return $null
+        }
+
+        $major = [int]$versionParts[0]
+        $minor = [int]$versionParts[1]
+        if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 11)) {
+            Write-Host "Skipping Python runtime $Label because it resolves to Python $versionText"
+            return $null
+        }
+
+        return [PSCustomObject]@{
+            FilePath = $FilePath
+            Arguments = $Arguments
+            Label = $Label
+            Version = $versionText
+        }
+    }
+    catch {
+        return $null
+    }
+}
+
+function Resolve-PythonRuntime {
+    $candidates = @(
+        @{ FilePath = $PythonExe; Arguments = @($PythonVersion); Label = "$PythonExe $PythonVersion" },
+        @{ FilePath = "py"; Arguments = @("-3.11"); Label = "py -3.11" },
+        @{ FilePath = "py"; Arguments = @("-3.12"); Label = "py -3.12" },
+        @{ FilePath = "py"; Arguments = @("-3"); Label = "py -3" },
+        @{ FilePath = "python"; Arguments = @(); Label = "python" },
+        @{ FilePath = "python3"; Arguments = @(); Label = "python3" }
+    )
+
+    foreach ($candidate in $candidates) {
+        $resolved = Get-PythonRuntimeCandidate -FilePath $candidate.FilePath -Arguments $candidate.Arguments -Label $candidate.Label
+        if ($null -ne $resolved) {
+            Write-Host "Selected Python runtime: $($resolved.Label) ($($resolved.Version))"
+            return $resolved
+        }
+    }
+
+    throw "No suitable Python runtime found. Install Python 3.11 or newer, or make py/python available."
+}
+
 function Test-NvidiaGpuAvailable {
     $nvidiaSmi = Get-Command "nvidia-smi.exe" -ErrorAction SilentlyContinue
     if ($null -eq $nvidiaSmi) {
@@ -231,8 +304,11 @@ try {
     Write-Host "VoxCPM install root: $installPath"
     Write-Host "VoxCPM model cache: $modelCachePath"
 
+    $pythonRuntime = Resolve-PythonRuntime
+    Write-Host "Using Python runtime: $($pythonRuntime.Label)"
+
     if (-not (Test-Path -LiteralPath $venvPath)) {
-        Invoke-Native $PythonExe $PythonVersion -m venv $venvPath
+        Invoke-Native $pythonRuntime.FilePath @($pythonRuntime.Arguments + @("-m", "venv", $venvPath))
     }
 
     $venvPython = Join-Path $venvPath "Scripts\python.exe"

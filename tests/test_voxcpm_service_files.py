@@ -53,6 +53,19 @@ def test_voxcpm_local_installer_uses_user_selected_model_cache() -> None:
     assert "VoxCPM model cache:" in script
 
 
+def test_voxcpm_local_installer_probes_available_python_runtimes() -> None:
+    script = (SERVICE_DIR / "install_local.ps1").read_text(encoding="utf-8")
+
+    assert "function Resolve-PythonRuntime" in script
+    assert "function Get-PythonRuntimeCandidate" in script
+    assert "py -3.11" in script
+    assert "py -3.12" in script
+    assert "python3" in script
+    assert "No suitable Python runtime found" in script
+    assert 'Label = "$PythonExe $PythonVersion"' in script
+    assert "Selected Python runtime" in script
+
+
 def test_voxcpm_local_installer_direct_downloads_mirror_large_files_to_local_model_dir() -> None:
     script = (SERVICE_DIR / "install_local.ps1").read_text(encoding="utf-8")
 
@@ -290,6 +303,15 @@ def test_windows_installer_defaults_voxcpm_under_selected_app_tts_folder() -> No
     assert "installPathBox.TextChanged" in installer_script
     assert "voxCpmInstallPathEdited" in installer_script
     assert "voxCpmModelCachePathEdited" in installer_script
+
+
+def test_windows_installer_initializes_voxcpm_model_textbox_before_handler() -> None:
+    installer_script = (ROOT / "build" / "build_installer.ps1").read_text(encoding="utf-8")
+
+    textbox_index = installer_script.index("voxcpmModelCachePathBox = new TextBox")
+    handler_index = installer_script.index("voxcpmModelCachePathBox.TextChanged +=")
+
+    assert textbox_index < handler_index
 
 
 def test_windows_installer_defaults_voxcpm_hf_mirror_on_for_model_downloads() -> None:

@@ -755,6 +755,7 @@ class AppController(QObject):
             )
 
     def check_voxcpm_service(self) -> None:
+        self._apply_open_settings_dialog_values()
         if self.voxcpm_service is None:
             return
         healthy = self.voxcpm_service.health_check()

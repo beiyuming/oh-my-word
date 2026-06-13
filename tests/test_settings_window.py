@@ -61,7 +61,8 @@ class SettingsDialogTtsTests(unittest.TestCase):
 
         self.assertIn(f"v{APP_VERSION}", dialog._version_label.text())
         self.assertIn("更新日志", dialog._changelog_view.toPlainText())
-        self.assertIn("v0.1.6", dialog._changelog_view.toPlainText())
+        self.assertIn("v0.1.7", dialog._changelog_view.toPlainText())
+        self.assertIn("自动探测可用的 Python 运行时", dialog._changelog_view.toPlainText())
         self.assertIn("v0.1.5", dialog._changelog_view.toPlainText())
         self.assertIn("v0.1.3", dialog._changelog_view.toPlainText())
         self.assertIn("v0.1.2", dialog._changelog_view.toPlainText())

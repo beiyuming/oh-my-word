@@ -2,7 +2,7 @@
 
 一个 Windows-first 的 `oh my word` Python 便携重写版，技术栈为 `Python + PySide6`。
 
-当前版本：`v0.1.6`。设置窗口的“关于”页会显示当前版本和更新日志。
+当前版本：`v0.1.7`。设置窗口的“关于”页会显示当前版本和更新日志。
 
 ## 范围
 
@@ -131,13 +131,13 @@ py -3.11 -m pytest tests -q
 .\build\build_installer.ps1
 ```
 
-该脚本会先构建 portable 版本，再生成带版本号的安装包，例如当前版本输出为 `dist/oh-my-word-setup-v0.1.6.exe`。安装包提供简单的 Windows 图形界面，允许用户选择安装目录，并可选择创建桌面/开始菜单快捷方式和安装完成后启动应用。
+该脚本会先构建 portable 版本，再生成带版本号的安装包，例如当前版本输出为 `dist/oh-my-word-setup-v0.1.7.exe`。安装包提供简单的 Windows 图形界面，允许用户选择安装目录，并可选择创建桌面/开始菜单快捷方式和安装完成后启动应用。
 
 安装器会用安装清单管理应用文件。用户选择已有目录时，安装器不会递归清空整个目录；卸载脚本只删除清单中的应用文件和相关快捷方式。
 
-安装器提供可选的 `Install local VoxCPM pronunciation engine` 入口，默认关闭。勾选后会在主应用文件安装完成后启动本机 VoxCPM 设置脚本，默认在主程序安装目录下创建 `tts\voxcpm`，其中 `tts\voxcpm\.venv` 保存独立 venv，`tts\voxcpm\service` 保存 service-only 文件，`tts\voxcpm\models` 保存 VoxCPM 模型缓存。安装器中修改主程序安装目录时，未手动改过的 VoxCPM engine 和模型目录会自动跟随更新；如果目标目录不可写，安装器会提示用户选择可写位置。安装脚本会通过 `ModelCacheRoot` 设置 `HF_HOME` 和 `HF_HUB_CACHE`，避免依赖全局 Hugging Face 默认缓存目录。安装器还提供 `Use model download mirror` 选项，默认勾选；镜像模式会优先从 ModelScope 下载 VoxCPM2 文件，失败时回退到 hf-mirror，用于降低直接访问 Hugging Face 下载模型时的失败率。该步骤可能下载数 GB 模型，推荐 NVIDIA GPU 8 GB+ VRAM；CPU 可用但较慢。VoxCPM 设置失败不会回滚或阻止主应用安装，应用仍保持 `system_qt` 发音引擎。
+安装器提供可选的 `Install local VoxCPM pronunciation engine` 入口，默认关闭。勾选后会在主应用文件安装完成后启动本机 VoxCPM 设置脚本，默认在主程序安装目录下创建 `tts\voxcpm`，其中 `tts\voxcpm\.venv` 保存独立 venv，`tts\voxcpm\service` 保存 service-only 文件，`tts\voxcpm\models` 保存 VoxCPM 模型缓存。安装器中修改主程序安装目录时，未手动改过的 VoxCPM engine 和模型目录会自动跟随更新；如果目标目录不可写，安装器会提示用户选择可写位置。安装脚本会通过 `ModelCacheRoot` 设置 `HF_HOME` 和 `HF_HUB_CACHE`，避免依赖全局 Hugging Face 默认缓存目录。安装器还提供 `Use model download mirror` 选项，默认勾选；镜像模式会优先从 ModelScope 下载 VoxCPM2 文件，失败时回退到 hf-mirror，用于降低直接访问 Hugging Face 下载模型时的失败率。该步骤会先探测可用的 Python 运行时，优先使用 3.11+，找不到兼容解释器时会提示明确错误。该步骤可能下载数 GB 模型，推荐 NVIDIA GPU 8 GB+ VRAM；CPU 可用但较慢。VoxCPM 设置失败不会回滚或阻止主应用安装，应用仍保持 `system_qt` 发音引擎。
 
-如果安装时未勾选 VoxCPM，也可以之后在应用设置页的“发音”分类中后台安装或更新。设置页允许用户选择 VoxCPM 安装目录、模型目录、下载镜像开关，并提供检测、启动服务、停止服务和打开日志入口。`voxcpm_auto_start` 默认关闭；用户选择 `VoxCPM 本地服务` 并打开“使用时自动启动”后，应用会在朗读时启动已安装的本地服务。未安装时不会静默下载数 GB 模型，而是提示用户去设置页后台安装。
+如果安装时未勾选 VoxCPM，也可以之后在应用设置页的“发音”分类中后台安装或更新。设置页允许用户选择 VoxCPM 安装目录、模型目录、下载镜像开关，并提供检测、启动服务、停止服务和打开日志入口；点击这些按钮前会先应用当前窗口里已编辑的 VoxCPM 路径设置。`voxcpm_auto_start` 默认关闭；用户选择 `VoxCPM 本地服务` 并打开“使用时自动启动”后，应用会在朗读时启动已安装的本地服务。未安装时不会静默下载数 GB 模型，而是提示用户去设置页后台安装。
 
 ## VoxCPM 本地发音
 

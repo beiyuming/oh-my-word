@@ -429,6 +429,36 @@ class ControllerPopupActionTests(unittest.TestCase):
             use_model_mirror=False,
         )
 
+    def test_check_voxcpm_service_applies_open_settings_dialog_values_before_refreshing(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings()
+        controller.settings_store = Mock()
+        controller.settings_window = Mock()
+        current_settings = AppSettings(
+            voxcpm_install_root="D:\\OhMyWord\\voxcpm",
+            voxcpm_model_cache_root="E:\\Models\\VoxCPM2",
+            voxcpm_use_model_mirror=False,
+            voxcpm_endpoint="http://localhost:8810",
+        )
+        controller.settings_window.get_settings.return_value = current_settings
+        controller.settings_store.save.return_value = current_settings
+        controller.tray = Mock()
+        controller.voxcpm_service = Mock()
+        controller.voxcpm_service.health_check.return_value = False
+        controller.voxcpm_service.status.return_value.message = "VoxCPM 服务未响应。"
+
+        controller.check_voxcpm_service()
+
+        controller.settings_store.save.assert_called_once_with(current_settings)
+        controller.voxcpm_service.configure.assert_called_once_with(
+            install_root=Path("D:\\OhMyWord\\voxcpm"),
+            model_cache_root=Path("E:\\Models\\VoxCPM2"),
+            endpoint="http://localhost:8810",
+            use_model_mirror=False,
+        )
+        controller.voxcpm_service.health_check.assert_called_once_with()
+        controller.tray.show_message.assert_called_once_with("oh my word", "VoxCPM 服务未响应。")
+
     def test_create_tts_service_passes_voxcpm_stream_prebuffer_seconds(self) -> None:
         controller = AppController(self.app)
         with TemporaryDirectory() as temp_dir:

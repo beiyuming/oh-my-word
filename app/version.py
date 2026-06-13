@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-APP_VERSION = "0.1.6"
+APP_VERSION = "0.1.7"
 
 
 @dataclass(slots=True, frozen=True)
@@ -14,6 +14,15 @@ class ChangelogEntry:
 
 
 CHANGELOG: tuple[ChangelogEntry, ...] = (
+    ChangelogEntry(
+        version="0.1.7",
+        date="2026-06-14",
+        changes=(
+            "VoxCPM 可选安装现在会自动探测可用的 Python 运行时，不再只依赖 py -3.11；找不到合适解释器时会给出更明确的错误。",
+            "安装器里 VoxCPM 模型目录输入框的事件绑定顺序已修正，避免窗体初始化时触发空引用。",
+            "设置页“检查服务”会先应用当前打开窗口里的 VoxCPM 路径和镜像设置，再去查询服务状态。",
+        ),
+    ),
     ChangelogEntry(
         version="0.1.6",
         date="2026-06-14",
