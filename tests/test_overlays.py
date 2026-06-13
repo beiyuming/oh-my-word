@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QPoint, QRect, QSize
 from PySide6.QtWidgets import QApplication
 
-from app.models import OverlayPosition, WordEntry
+from app.models import OverlayPosition, PronunciationContentMode, WordEntry
 from app.overlays.barrage_popup import BarragePopup, compute_barrage_rect
 from app.overlays.card_popup import CardPopup, compute_popup_rect
 
@@ -59,7 +59,7 @@ class CardPopupGeometryTests(unittest.TestCase):
         self.assertIn("Focus on review.", popup.details_label.text())
         self.assertIn("专注复习。", popup.details_label.text())
 
-    def test_card_popup_pronounce_emits_word_and_example_sentence(self) -> None:
+    def test_card_popup_pronounce_emits_default_word_and_example_sentence(self) -> None:
         popup = CardPopup()
         self.addCleanup(popup.deleteLater)
         entry = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
@@ -69,7 +69,20 @@ class CardPopupGeometryTests(unittest.TestCase):
         popup.set_entry(entry)
         popup.pronounce_button.click()
 
-        self.assertEqual(captured, ["focus. Focus on review."])
+        self.assertEqual(captured, ["focus.\n\nFocus on review."])
+
+    def test_card_popup_pronounce_respects_content_mode(self) -> None:
+        popup = CardPopup()
+        self.addCleanup(popup.deleteLater)
+        entry = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
+        captured: list[str] = []
+        popup.pronounce.connect(captured.append)
+
+        popup.set_pronunciation_content_mode(PronunciationContentMode.WORD)
+        popup.set_entry(entry)
+        popup.pronounce_button.click()
+
+        self.assertEqual(captured, ["focus"])
 
 
 class BarragePopupGeometryTests(unittest.TestCase):
@@ -124,7 +137,7 @@ class BarragePopupGeometryTests(unittest.TestCase):
         self.assertIn("Focus on review.", popup.details_label.text())
         self.assertIn("专注复习。", popup.details_label.text())
 
-    def test_barrage_popup_pronounce_emits_word_and_example_sentence(self) -> None:
+    def test_barrage_popup_pronounce_emits_default_word_and_example_sentence(self) -> None:
         popup = BarragePopup()
         self.addCleanup(popup.deleteLater)
         entry = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
@@ -134,4 +147,17 @@ class BarragePopupGeometryTests(unittest.TestCase):
         popup.set_entry(entry)
         popup.pronounce_button.click()
 
-        self.assertEqual(captured, ["focus. Focus on review."])
+        self.assertEqual(captured, ["focus.\n\nFocus on review."])
+
+    def test_barrage_popup_pronounce_respects_content_mode(self) -> None:
+        popup = BarragePopup()
+        self.addCleanup(popup.deleteLater)
+        entry = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
+        captured: list[str] = []
+        popup.pronounce.connect(captured.append)
+
+        popup.set_pronunciation_content_mode(PronunciationContentMode.EXAMPLE)
+        popup.set_entry(entry)
+        popup.pronounce_button.click()
+
+        self.assertEqual(captured, ["Focus on review."])

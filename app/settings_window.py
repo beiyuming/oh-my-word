@@ -8,17 +8,22 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QPlainTextEdit,
     QSpinBox,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from .models import Accent, AppSettings, DisplayMode, OverlayPosition, TtsProvider
+from .models import Accent, AppSettings, DisplayMode, OverlayPosition, PronunciationContentMode, TtsProvider
+from .version import APP_VERSION, formatted_changelog
 
 
 _ENUM_LABELS = {
@@ -31,6 +36,9 @@ _ENUM_LABELS = {
     OverlayPosition.RANDOM: "随机位置",
     Accent.UK: "英音",
     Accent.US: "美音",
+    PronunciationContentMode.WORD: "只读单词",
+    PronunciationContentMode.EXAMPLE: "只读例句",
+    PronunciationContentMode.WORD_AND_EXAMPLE: "单词 + 例句",
     TtsProvider.SYSTEM_QT: "系统离线发音",
     TtsProvider.VOXCPM_LOCAL: "VoxCPM 本地服务",
 }
@@ -139,21 +147,42 @@ class HotkeyCaptureButton(QPushButton):
 class SettingsDialog(QDialog):
     import_wordbook_requested = Signal()
     download_wordbook_requested = Signal()
+    voxcpm_install_requested = Signal()
+    voxcpm_start_requested = Signal()
+    voxcpm_stop_requested = Signal()
+    voxcpm_health_check_requested = Signal()
+    voxcpm_open_log_requested = Signal()
 
     def __init__(self, settings: AppSettings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("oh my word 设置")
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setModal(False)
-        self.resize(440, 660)
+        self.resize(680, 620)
 
+        self._tabs = QTabWidget(self)
         self._display_mode = QComboBox(self)
         self._card_position = QComboBox(self)
         self._barrage_position = QComboBox(self)
         self._accent = QComboBox(self)
+        self._pronunciation_content_mode = QComboBox(self)
         self._tts_provider = QComboBox(self)
         self._voxcpm_endpoint = QLineEdit(self)
         self._voxcpm_timeout = QSpinBox(self)
+        self._voxcpm_install_root = QLineEdit(self)
+        self._voxcpm_model_cache_root = QLineEdit(self)
+        self._voxcpm_use_model_mirror = QCheckBox(self)
+        self._voxcpm_auto_start = QCheckBox(self)
+        self._voxcpm_install_status = QLabel("未检测", self)
+        self._voxcpm_service_status = QLabel("未检测", self)
+        self._voxcpm_message = QLabel("", self)
+        self._voxcpm_install_button = QPushButton("后台安装 / 更新", self)
+        self._voxcpm_start_button = QPushButton("启动服务", self)
+        self._voxcpm_stop_button = QPushButton("停止服务", self)
+        self._voxcpm_check_button = QPushButton("检测服务", self)
+        self._voxcpm_open_log_button = QPushButton("打开日志", self)
+        self._voxcpm_install_browse_button = QPushButton("选择", self)
+        self._voxcpm_model_browse_button = QPushButton("选择", self)
         self._enabled = QCheckBox(self)
         self._mute = QCheckBox(self)
         self._min_delay = QSpinBox(self)
@@ -171,6 +200,8 @@ class SettingsDialog(QDialog):
         self._dismiss_hotkey = HotkeyCaptureButton(self)
         self._import_wordbook_button = QPushButton("导入词库...", self)
         self._download_wordbook_button = QPushButton("下载推荐考研词库", self)
+        self._version_label = QLabel(f"当前版本：v{APP_VERSION}", self)
+        self._changelog_view = QPlainTextEdit(self)
         self._buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel,
             Qt.Orientation.Horizontal,
@@ -189,8 +220,21 @@ class SettingsDialog(QDialog):
 
         self._enabled.toggled.connect(lambda _: self._refresh_toggle_labels())
         self._mute.toggled.connect(lambda _: self._refresh_toggle_labels())
+        self._voxcpm_use_model_mirror.toggled.connect(lambda _: self._refresh_toggle_labels())
+        self._voxcpm_auto_start.toggled.connect(lambda _: self._refresh_toggle_labels())
         self._import_wordbook_button.clicked.connect(self.import_wordbook_requested.emit)
         self._download_wordbook_button.clicked.connect(self.download_wordbook_requested.emit)
+        self._voxcpm_install_button.clicked.connect(self.voxcpm_install_requested.emit)
+        self._voxcpm_start_button.clicked.connect(self.voxcpm_start_requested.emit)
+        self._voxcpm_stop_button.clicked.connect(self.voxcpm_stop_requested.emit)
+        self._voxcpm_check_button.clicked.connect(self.voxcpm_health_check_requested.emit)
+        self._voxcpm_open_log_button.clicked.connect(self.voxcpm_open_log_requested.emit)
+        self._voxcpm_install_browse_button.clicked.connect(
+            lambda: self._browse_directory(self._voxcpm_install_root, "选择 VoxCPM 安装目录")
+        )
+        self._voxcpm_model_browse_button.clicked.connect(
+            lambda: self._browse_directory(self._voxcpm_model_cache_root, "选择 VoxCPM 模型目录")
+        )
         self._buttons.accepted.connect(self.accept)
         self._buttons.rejected.connect(self.reject)
 
@@ -201,9 +245,14 @@ class SettingsDialog(QDialog):
         self._set_enum_value(self._card_position, settings.card_position)
         self._set_enum_value(self._barrage_position, settings.barrage_position)
         self._set_enum_value(self._accent, settings.accent)
+        self._set_enum_value(self._pronunciation_content_mode, settings.pronunciation_content_mode)
         self._set_enum_value(self._tts_provider, settings.tts_provider)
         self._voxcpm_endpoint.setText(settings.voxcpm_endpoint)
         self._voxcpm_timeout.setValue(settings.voxcpm_timeout_seconds)
+        self._voxcpm_install_root.setText(settings.voxcpm_install_root)
+        self._voxcpm_model_cache_root.setText(settings.voxcpm_model_cache_root)
+        self._voxcpm_use_model_mirror.setChecked(settings.voxcpm_use_model_mirror)
+        self._voxcpm_auto_start.setChecked(settings.voxcpm_auto_start)
         self._min_delay.setValue(settings.min_delay_minutes)
         self._max_delay.setValue(settings.max_delay_minutes)
         self._activity_threshold.setValue(settings.activity_threshold_per_minute)
@@ -236,10 +285,20 @@ class SettingsDialog(QDialog):
             popup_duration_seconds=self._popup_duration.value(),
             snooze_minutes=self._snooze_minutes.value(),
             mute_pronunciation=self._mute.isChecked(),
+            pronunciation_content_mode=self._current_enum_value(
+                self._pronunciation_content_mode,
+                PronunciationContentMode,
+                AppSettings().pronunciation_content_mode,
+            ),
             accent=self._current_enum_value(self._accent, Accent, AppSettings().accent),
             tts_provider=self._current_enum_value(self._tts_provider, TtsProvider, AppSettings().tts_provider),
             voxcpm_endpoint=self._voxcpm_endpoint.text().strip() or AppSettings().voxcpm_endpoint,
             voxcpm_timeout_seconds=self._voxcpm_timeout.value(),
+            voxcpm_install_root=self._voxcpm_install_root.text().strip() or AppSettings().voxcpm_install_root,
+            voxcpm_model_cache_root=self._voxcpm_model_cache_root.text().strip()
+            or AppSettings().voxcpm_model_cache_root,
+            voxcpm_use_model_mirror=self._voxcpm_use_model_mirror.isChecked(),
+            voxcpm_auto_start=self._voxcpm_auto_start.isChecked(),
             pronounce_hotkey=self._pronounce_hotkey.sequence() or AppSettings().pronounce_hotkey,
             toggle_detail_hotkey=self._toggle_detail_hotkey.sequence() or AppSettings().toggle_detail_hotkey,
             trigger_now_hotkey=self._trigger_now_hotkey.sequence() or AppSettings().trigger_now_hotkey,
@@ -262,11 +321,6 @@ class SettingsDialog(QDialog):
         hint.setWordWrap(True)
         root.addWidget(hint)
 
-        form = QFormLayout()
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setSpacing(10)
-        root.addLayout(form)
-
         for member in DisplayMode:
             self._display_mode.addItem(_ENUM_LABELS.get(member, member.value), member)
         for member in OverlayPosition:
@@ -274,6 +328,8 @@ class SettingsDialog(QDialog):
             self._barrage_position.addItem(_ENUM_LABELS.get(member, member.value), member)
         for member in Accent:
             self._accent.addItem(_ENUM_LABELS.get(member, member.value), member)
+        for member in PronunciationContentMode:
+            self._pronunciation_content_mode.addItem(_ENUM_LABELS.get(member, member.value), member)
         for member in TtsProvider:
             self._tts_provider.addItem(_ENUM_LABELS.get(member, member.value), member)
 
@@ -297,21 +353,92 @@ class SettingsDialog(QDialog):
         self._voxcpm_timeout.setRange(1, 120)
         self._voxcpm_timeout.setSuffix(" 秒")
 
+        self._voxcpm_message.setWordWrap(True)
+        self._tabs.addTab(self._build_learning_tab(), "学习")
+        self._tabs.addTab(self._build_display_tab(), "显示")
+        self._tabs.addTab(self._build_pronunciation_tab(), "发音")
+        self._tabs.addTab(self._build_hotkeys_tab(), "快捷键")
+        self._tabs.addTab(self._build_wordbooks_tab(), "词库")
+        self._tabs.addTab(self._build_about_tab(), "关于")
+        root.addWidget(self._tabs, 1)
+
+        buttons_row = QHBoxLayout()
+        buttons_row.addStretch(1)
+        buttons_row.addWidget(self._buttons)
+        root.addLayout(buttons_row)
+
+    def _build_learning_tab(self) -> QWidget:
+        widget = QWidget(self)
+        form = self._new_form(widget)
         form.addRow(self._enabled)
-        form.addRow(self._mute)
-        form.addRow("显示方式", self._display_mode)
-        form.addRow("卡片位置", self._card_position)
-        form.addRow("弹幕位置", self._barrage_position)
-        form.addRow("发音口音", self._accent)
-        form.addRow("发音引擎", self._tts_provider)
-        form.addRow("VoxCPM 地址", self._voxcpm_endpoint)
-        form.addRow("VoxCPM 超时", self._voxcpm_timeout)
         form.addRow("最短间隔", self._min_delay)
         form.addRow("最长间隔", self._max_delay)
         form.addRow("高频操作阈值", self._activity_threshold)
         form.addRow("频率影响权重", self._activity_weight)
-        form.addRow("卡片停留时长", self._popup_duration)
         form.addRow("稍后时长", self._snooze_minutes)
+        return widget
+
+    def _build_display_tab(self) -> QWidget:
+        widget = QWidget(self)
+        form = self._new_form(widget)
+        form.addRow("显示方式", self._display_mode)
+        form.addRow("卡片位置", self._card_position)
+        form.addRow("弹幕位置", self._barrage_position)
+        form.addRow("卡片停留时长", self._popup_duration)
+        return widget
+
+    def _build_pronunciation_tab(self) -> QWidget:
+        widget = QWidget(self)
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 12, 0, 0)
+        layout.setSpacing(12)
+
+        engine_group = QGroupBox("发音引擎", widget)
+        engine_form = self._new_form(engine_group)
+        engine_form.addRow(self._mute)
+        engine_form.addRow("朗读内容", self._pronunciation_content_mode)
+        engine_form.addRow("发音口音", self._accent)
+        engine_form.addRow("发音引擎", self._tts_provider)
+        layout.addWidget(engine_group)
+
+        service_group = QGroupBox("VoxCPM 本地服务", widget)
+        service_layout = QVBoxLayout(service_group)
+        service_layout.setSpacing(10)
+
+        status_form = QFormLayout()
+        status_form.addRow("安装状态", self._voxcpm_install_status)
+        status_form.addRow("服务状态", self._voxcpm_service_status)
+        status_form.addRow("状态信息", self._voxcpm_message)
+        service_layout.addLayout(status_form)
+
+        settings_form = QFormLayout()
+        settings_form.setSpacing(10)
+        settings_form.addRow("端点地址", self._voxcpm_endpoint)
+        settings_form.addRow("请求超时", self._voxcpm_timeout)
+        settings_form.addRow("安装目录", self._path_row(self._voxcpm_install_root, self._voxcpm_install_browse_button))
+        settings_form.addRow(
+            "模型目录",
+            self._path_row(self._voxcpm_model_cache_root, self._voxcpm_model_browse_button),
+        )
+        settings_form.addRow(self._voxcpm_use_model_mirror)
+        settings_form.addRow(self._voxcpm_auto_start)
+        service_layout.addLayout(settings_form)
+
+        action_row = QHBoxLayout()
+        action_row.addWidget(self._voxcpm_install_button)
+        action_row.addWidget(self._voxcpm_start_button)
+        action_row.addWidget(self._voxcpm_stop_button)
+        action_row.addWidget(self._voxcpm_check_button)
+        action_row.addWidget(self._voxcpm_open_log_button)
+        action_row.addStretch(1)
+        service_layout.addLayout(action_row)
+        layout.addWidget(service_group)
+        layout.addStretch(1)
+        return widget
+
+    def _build_hotkeys_tab(self) -> QWidget:
+        widget = QWidget(self)
+        form = self._new_form(widget)
         form.addRow("朗读快捷键", self._pronounce_hotkey)
         form.addRow("展开详情快捷键", self._toggle_detail_hotkey)
         form.addRow("立刻弹出快捷键", self._trigger_now_hotkey)
@@ -319,13 +446,65 @@ class SettingsDialog(QDialog):
         form.addRow("认识快捷键", self._known_hotkey)
         form.addRow("不认识快捷键", self._unknown_hotkey)
         form.addRow("关闭快捷键", self._dismiss_hotkey)
-        form.addRow("词库", self._import_wordbook_button)
-        form.addRow("", self._download_wordbook_button)
+        return widget
 
-        buttons_row = QHBoxLayout()
-        buttons_row.addStretch(1)
-        buttons_row.addWidget(self._buttons)
-        root.addLayout(buttons_row)
+    def _build_wordbooks_tab(self) -> QWidget:
+        widget = QWidget(self)
+        form = self._new_form(widget)
+        form.addRow("导入本地词库", self._import_wordbook_button)
+        form.addRow("推荐词库", self._download_wordbook_button)
+        return widget
+
+    def _build_about_tab(self) -> QWidget:
+        widget = QWidget(self)
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 12, 0, 0)
+        layout.setSpacing(10)
+
+        self._version_label.setText(f"当前版本：v{APP_VERSION}")
+        self._changelog_view.setReadOnly(True)
+        self._changelog_view.setPlainText(formatted_changelog())
+
+        layout.addWidget(self._version_label)
+        layout.addWidget(self._changelog_view, 1)
+        return widget
+
+    @staticmethod
+    def _new_form(parent: QWidget) -> QFormLayout:
+        form = QFormLayout(parent)
+        form.setContentsMargins(0, 12, 0, 0)
+        form.setSpacing(10)
+        return form
+
+    @staticmethod
+    def _path_row(line_edit: QLineEdit, button: QPushButton) -> QWidget:
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(line_edit, 1)
+        layout.addWidget(button)
+        return widget
+
+    def set_voxcpm_status(self, status: object) -> None:
+        installed = bool(getattr(status, "installed", False))
+        running = bool(getattr(status, "running", False))
+        installing = bool(getattr(status, "installing", False))
+        message = str(getattr(status, "message", "") or "")
+        log_path = getattr(status, "log_path", None)
+
+        self._voxcpm_install_status.setText("安装中" if installing else ("已安装" if installed else "未安装"))
+        self._voxcpm_service_status.setText("运行中" if running else "未运行")
+        self._voxcpm_message.setText(message or (f"日志：{log_path}" if log_path else ""))
+        self._voxcpm_install_button.setEnabled(not installing)
+        self._voxcpm_start_button.setEnabled(installed and not running and not installing)
+        self._voxcpm_stop_button.setEnabled(running)
+        self._voxcpm_open_log_button.setEnabled(log_path is not None)
+
+    def _browse_directory(self, target: QLineEdit, title: str) -> None:
+        selected = QFileDialog.getExistingDirectory(self, title, target.text().strip())
+        if selected:
+            target.setText(selected)
 
     @staticmethod
     def _set_enum_value(combo: QComboBox, value: object) -> None:
@@ -354,4 +533,14 @@ class SettingsDialog(QDialog):
             "发音：已静音（取消勾选恢复）"
             if self._mute.isChecked()
             else "发音：正常播放（勾选后静音）"
+        )
+        self._voxcpm_use_model_mirror.setText(
+            "下载：优先使用国内镜像 / ModelScope"
+            if self._voxcpm_use_model_mirror.isChecked()
+            else "下载：使用默认源"
+        )
+        self._voxcpm_auto_start.setText(
+            "VoxCPM：使用时自动启动本地服务"
+            if self._voxcpm_auto_start.isChecked()
+            else "VoxCPM：不自动启动服务"
         )

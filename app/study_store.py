@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Sequence
+from typing import Protocol, Sequence
 
 from .fsrs_service import FsrsReviewService, ProjectReviewRating
 from .models import WordEntry, WordSelectionResult
@@ -15,6 +16,17 @@ from .settings import normalize_learning_state
 
 SCHEMA_VERSION = 1
 _MODULE_LOGGER = logging.getLogger("oh_my_word.study_store")
+
+
+class WeightedRandomSource(Protocol):
+    def choices(
+        self,
+        population: Sequence[WordEntry],
+        weights: Sequence[float],
+        *,
+        k: int,
+    ) -> list[WordEntry]:
+        ...
 
 
 @dataclass(slots=True, frozen=True)
@@ -251,6 +263,7 @@ class StudyStore:
         *,
         now: datetime,
         recent_window_size: int = 5,
+        rng: WeightedRandomSource | None = None,
     ) -> WordSelectionResult:
         app_snoozed_until = self._get_app_state("app_snoozed_until")
         if _is_after(app_snoozed_until, now):
@@ -283,8 +296,14 @@ class StudyStore:
         recent_set = self._recent_word_set(max(0, recent_window_size))
         fresh_pool = [word for word in base_pool if word.word.casefold() not in recent_set]
         candidate_pool = fresh_pool or base_pool
+        selected_word = _choose_by_learning_need(
+            candidate_pool,
+            cards,
+            now,
+            rng or random.Random(),
+        )
         return WordSelectionResult(
-            word=candidate_pool[0],
+            word=selected_word,
             should_pause=False,
             used_recent_fallback=not bool(fresh_pool),
         )
@@ -668,3 +687,39 @@ def _card_is_due(card: StudyCard | None, now: datetime) -> bool:
 
 def _card_is_new(card: StudyCard | None) -> bool:
     return card is None or card.state == "new"
+
+
+def _choose_by_learning_need(
+    words: list[WordEntry],
+    cards: dict[str, StudyCard],
+    now: datetime,
+    rng: WeightedRandomSource,
+) -> WordEntry:
+    if len(words) == 1:
+        return words[0]
+    weights = [
+        _learning_need_weight(cards.get(word.word.casefold()), now)
+        for word in words
+    ]
+    return rng.choices(words, weights=weights, k=1)[0]
+
+
+def _learning_need_weight(card: StudyCard | None, now: datetime) -> float:
+    if card is None:
+        return 3.0
+
+    weight = 1.0
+    due_at = _parse_datetime(card.due_at)
+    if due_at is not None:
+        overdue_hours = max(0.0, (_as_utc(now) - due_at).total_seconds() / 3600.0)
+        weight += min(24.0, overdue_hours / 2.0)
+    if card.state == "new":
+        weight += 2.0
+    if card.difficulty is not None:
+        weight += max(0.0, min(9.0, card.difficulty - 1.0))
+    if card.stability is not None:
+        weight += max(0.0, 3.0 - min(3.0, card.stability))
+    weight += min(10.0, card.lapses * 1.5)
+    weight += min(8.0, card.unknown_count)
+    weight += min(2.0, 2.0 / max(1, card.show_count + 1))
+    return max(0.1, weight)

@@ -97,6 +97,39 @@ def test_selects_due_card_before_new_word(tmp_path: Path) -> None:
     assert result.word.word == "brisk"
 
 
+def test_selects_due_card_by_learning_need_weight(tmp_path: Path) -> None:
+    store = StudyStore(tmp_path / "oh_my_word.sqlite3")
+    store.initialize()
+    now = datetime(2026, 6, 8, 8, 0, tzinfo=UTC)
+    store.upsert_card_for_test(
+        "abandon",
+        due_at=(now - timedelta(minutes=5)).isoformat(),
+        difficulty=3.0,
+        stability=8.0,
+        lapses=0,
+        unknown_count=0,
+        show_count=8,
+    )
+    store.upsert_card_for_test(
+        "zeal",
+        due_at=(now - timedelta(days=2)).isoformat(),
+        difficulty=9.0,
+        stability=0.5,
+        lapses=3,
+        unknown_count=4,
+        show_count=1,
+    )
+
+    result = store.select_next_word(
+        [_entry("abandon"), _entry("zeal")],
+        now=now,
+        rng=_HighestWeightRandom(),
+    )
+
+    assert result.word is not None
+    assert result.word.word == "zeal"
+
+
 def test_snoozed_card_is_not_selected_until_snooze_expires(tmp_path: Path) -> None:
     store = StudyStore(tmp_path / "oh_my_word.sqlite3")
     store.initialize()
@@ -192,3 +225,16 @@ def _entry(word: str) -> WordEntry:
         example_sentence=word,
         example_translation=word,
     )
+
+
+class _HighestWeightRandom:
+    def choices(
+        self,
+        population: list[WordEntry],
+        weights: list[float],
+        *,
+        k: int,
+    ) -> list[WordEntry]:
+        assert k == 1
+        selected_index = max(range(len(weights)), key=weights.__getitem__)
+        return [population[selected_index]]

@@ -39,9 +39,24 @@ $pythonArgs += @(
     "--name",
     $Name,
     "--add-data",
-    "data;data",
-    $EntryPoint
+    "data;data"
 )
+
+$voxcpmServicePayloadFiles = @(
+    "install_local.ps1",
+    "server.py",
+    "engine.py",
+    "requirements.txt",
+    "README.md"
+)
+foreach ($payloadFile in $voxcpmServicePayloadFiles) {
+    $pythonArgs += @(
+        "--add-data",
+        "tools\voxcpm_service\$payloadFile;tools\voxcpm_service"
+    )
+}
+
+$pythonArgs += $EntryPoint
 
 Push-Location $projectRoot
 try {

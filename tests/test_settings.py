@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,9 +10,12 @@ from tempfile import TemporaryDirectory
 from app.models import (
     Accent,
     AppSettings,
+    DEFAULT_VOXCPM_INSTALL_ROOT,
+    DEFAULT_VOXCPM_MODEL_CACHE_ROOT,
     DisplayMode,
     LearningState,
     OverlayPosition,
+    PronunciationContentMode,
     TtsProvider,
     WordProgress,
 )
@@ -53,6 +57,11 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertIs(settings.tts_provider, TtsProvider.SYSTEM_QT)
         self.assertEqual(settings.voxcpm_endpoint, "http://127.0.0.1:8808")
         self.assertEqual(settings.voxcpm_timeout_seconds, 15)
+        self.assertEqual(settings.voxcpm_install_root, DEFAULT_VOXCPM_INSTALL_ROOT)
+        self.assertEqual(settings.voxcpm_model_cache_root, DEFAULT_VOXCPM_MODEL_CACHE_ROOT)
+        self.assertTrue(settings.voxcpm_use_model_mirror)
+        self.assertFalse(settings.voxcpm_auto_start)
+        self.assertIs(settings.pronunciation_content_mode, PronunciationContentMode.WORD_AND_EXAMPLE)
 
     def test_loads_defaults_when_missing(self) -> None:
         with TemporaryDirectory() as tmp_dir:
@@ -82,6 +91,7 @@ class SettingsStoreTests(unittest.TestCase):
                         "popup_duration_seconds": -3,
                         "snooze_minutes": 0,
                         "mute_pronunciation": "no",
+                        "pronunciation_content_mode": "invalid",
                         "accent": "AU",
                         "pronounce_hotkey": "",
                         "toggle_detail_hotkey": None,
@@ -109,6 +119,10 @@ class SettingsStoreTests(unittest.TestCase):
             self.assertEqual(settings.popup_duration_seconds, 6)
             self.assertEqual(settings.snooze_minutes, 30)
             self.assertFalse(settings.mute_pronunciation)
+            self.assertIs(
+                settings.pronunciation_content_mode,
+                PronunciationContentMode.WORD_AND_EXAMPLE,
+            )
             self.assertIs(settings.accent, Accent.US)
             self.assertEqual(settings.pronounce_hotkey, "Ctrl+Alt+1")
             self.assertEqual(settings.toggle_detail_hotkey, "Ctrl+Alt+2")
@@ -126,8 +140,13 @@ class SettingsStoreTests(unittest.TestCase):
                 json.dumps(
                     {
                         "tts_provider": "voxcpm_local",
+                        "pronunciation_content_mode": "example",
                         "voxcpm_endpoint": "http://localhost:8808/",
                         "voxcpm_timeout_seconds": 31,
+                        "voxcpm_install_root": "%LOCALAPPDATA%\\OhMyWord\\custom-voxcpm",
+                        "voxcpm_model_cache_root": "D:\\Models\\VoxCPM2",
+                        "voxcpm_use_model_mirror": False,
+                        "voxcpm_auto_start": True,
                     }
                 ),
                 encoding="utf-8",
@@ -136,8 +155,16 @@ class SettingsStoreTests(unittest.TestCase):
             settings = SettingsStore(paths).load()
 
             self.assertIs(settings.tts_provider, TtsProvider.VOXCPM_LOCAL)
+            self.assertIs(settings.pronunciation_content_mode, PronunciationContentMode.EXAMPLE)
             self.assertEqual(settings.voxcpm_endpoint, "http://localhost:8808")
             self.assertEqual(settings.voxcpm_timeout_seconds, 31)
+            self.assertEqual(
+                settings.voxcpm_install_root,
+                str(Path(os.path.expandvars("%LOCALAPPDATA%\\OhMyWord\\custom-voxcpm"))),
+            )
+            self.assertEqual(settings.voxcpm_model_cache_root, str(Path("D:\\Models\\VoxCPM2")))
+            self.assertFalse(settings.voxcpm_use_model_mirror)
+            self.assertTrue(settings.voxcpm_auto_start)
 
     def test_rejects_non_local_voxcpm_endpoint(self) -> None:
         with TemporaryDirectory() as tmp_dir:
@@ -149,6 +176,10 @@ class SettingsStoreTests(unittest.TestCase):
                         "tts_provider": "voxcpm_local",
                         "voxcpm_endpoint": "https://example.com/tts",
                         "voxcpm_timeout_seconds": 0,
+                        "voxcpm_install_root": "",
+                        "voxcpm_model_cache_root": [],
+                        "voxcpm_use_model_mirror": "yes",
+                        "voxcpm_auto_start": 1,
                     }
                 ),
                 encoding="utf-8",
@@ -159,19 +190,33 @@ class SettingsStoreTests(unittest.TestCase):
             self.assertIs(settings.tts_provider, TtsProvider.VOXCPM_LOCAL)
             self.assertEqual(settings.voxcpm_endpoint, "http://127.0.0.1:8808")
             self.assertEqual(settings.voxcpm_timeout_seconds, 15)
+            self.assertEqual(settings.voxcpm_install_root, DEFAULT_VOXCPM_INSTALL_ROOT)
+            self.assertEqual(settings.voxcpm_model_cache_root, DEFAULT_VOXCPM_MODEL_CACHE_ROOT)
+            self.assertTrue(settings.voxcpm_use_model_mirror)
+            self.assertFalse(settings.voxcpm_auto_start)
 
     def test_persists_tts_provider_settings(self) -> None:
         payload = settings_to_dict(
             AppSettings(
                 tts_provider=TtsProvider.VOXCPM_LOCAL,
+                pronunciation_content_mode=PronunciationContentMode.WORD,
                 voxcpm_endpoint="http://localhost:8810",
                 voxcpm_timeout_seconds=22,
+                voxcpm_install_root="D:\\Apps\\OhMyWordVox",
+                voxcpm_model_cache_root="E:\\Models\\VoxCPM2",
+                voxcpm_use_model_mirror=False,
+                voxcpm_auto_start=True,
             )
         )
 
         self.assertEqual(payload["tts_provider"], "voxcpm_local")
+        self.assertEqual(payload["pronunciation_content_mode"], "word")
         self.assertEqual(payload["voxcpm_endpoint"], "http://localhost:8810")
         self.assertEqual(payload["voxcpm_timeout_seconds"], 22)
+        self.assertEqual(payload["voxcpm_install_root"], "D:\\Apps\\OhMyWordVox")
+        self.assertEqual(payload["voxcpm_model_cache_root"], "E:\\Models\\VoxCPM2")
+        self.assertFalse(payload["voxcpm_use_model_mirror"])
+        self.assertTrue(payload["voxcpm_auto_start"])
 
     def test_persists_pretty_utf8_json(self) -> None:
         with TemporaryDirectory() as tmp_dir:

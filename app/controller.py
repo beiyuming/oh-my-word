@@ -12,8 +12,9 @@ from pathlib import Path
 from time import monotonic
 from typing import Any
 
-from PySide6.QtCore import QObject
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import QObject, QUrl
+from PySide6.QtCore import QTimer
+from PySide6.QtGui import QDesktopServices, QIcon
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QStyle
 
 from .hotkeys import GlobalHotkeyService
@@ -22,18 +23,22 @@ from .models import (
     DEFAULT_RECENT_WORDS_LIMIT,
     DisplayMode,
     LearningState,
+    TtsInitializationState,
+    TtsProvider,
     WordEntry,
     WordProgress,
 )
 from .overlays.barrage_popup import BarragePopup
 from .overlays.card_popup import CardPopup
 from .fsrs_service import ProjectReviewRating
+from .pronunciation import pronunciation_text
 from .scheduler import QtScheduler, SchedulerAction, SchedulerActionKind
 from .settings import LearningStateStore, SettingsStore, ensure_storage_layout, setup_app_logger
 from .settings_window import SettingsDialog
 from .study_store import StudyStore
 from .tray import TrayController
 from .tts import PronunciationService
+from .voxcpm_service import VoxCpmServiceManager, VoxCpmServiceStatus
 from .words import (
     DEFAULT_RECENT_WORDS_WINDOW,
     RECOMMENDED_KAOYAN_LICENSE,
@@ -265,6 +270,9 @@ class AppController(QObject):
         self.tray: TrayController | None = None
         self.hotkeys: GlobalHotkeyService | None = None
         self.tts: PronunciationService | None = None
+        self.voxcpm_service: VoxCpmServiceManager | None = None
+        self._last_tts_notice_key: str | None = None
+        self._last_tts_notice_at = 0.0
         self.card_popup: CardPopup | None = None
         self.barrage_popup: BarragePopup | None = None
 
@@ -287,6 +295,8 @@ class AppController(QObject):
 
         self.settings = self.settings_store.load()
         self.learning_state = self.learning_state_store.load()
+        self.voxcpm_service = self._create_voxcpm_service_manager()
+        self.voxcpm_service.status_changed.connect(self._on_voxcpm_status_changed)
 
         catalog_result = load_word_catalog(self._paths.wordbooks_dir)
         self.catalog = catalog_result.catalog
@@ -326,6 +336,7 @@ class AppController(QObject):
         self._notify_hotkey_registration_errors()
 
         self.tts = self._create_tts_service()
+        self._schedule_tts_warm_up()
 
         self.scheduler = QtScheduler(
             settings_provider=lambda: self.settings,
@@ -347,10 +358,16 @@ class AppController(QObject):
             self.settings_window.accepted.connect(self._save_settings_from_dialog)
             self.settings_window.import_wordbook_requested.connect(self.import_wordbook)
             self.settings_window.download_wordbook_requested.connect(self.download_recommended_wordbook)
+            self.settings_window.voxcpm_install_requested.connect(self.install_voxcpm_from_settings)
+            self.settings_window.voxcpm_start_requested.connect(self.start_voxcpm_service_from_settings)
+            self.settings_window.voxcpm_stop_requested.connect(self.stop_voxcpm_service)
+            self.settings_window.voxcpm_health_check_requested.connect(self.check_voxcpm_service)
+            self.settings_window.voxcpm_open_log_requested.connect(self.open_voxcpm_install_log)
             self.settings_window.finished.connect(self._on_settings_window_finished)
         else:
             self.settings_window.set_settings(self.settings)
 
+        self._refresh_voxcpm_status_in_settings()
         self.settings_window.show()
         self.settings_window.raise_()
         self.settings_window.activateWindow()
@@ -412,11 +429,18 @@ class AppController(QObject):
     def pronounce_current_word(self) -> None:
         if self.current_word is None:
             return
-        self.pronounce_text(_pronunciation_text(self.current_word))
+        self.pronounce_text(pronunciation_text(self.current_word, self.settings.pronunciation_content_mode))
 
     def pronounce_text(self, text: str) -> None:
         if self.current_word is None or self.settings.mute_pronunciation or self.tts is None:
             return
+        if self._maybe_start_voxcpm_for_pronunciation():
+            return
+        state = self.tts.initialization_state
+        if state is not TtsInitializationState.READY:
+            self._show_tts_status_notice(self._tts_status_message(state), state)
+            return
+
         if self.tts.speak(text, accent=self.settings.accent):
             if self.study_store is not None:
                 self.study_store.record_word_pronounced(
@@ -428,6 +452,9 @@ class AppController(QObject):
                     self.current_word.word,
                     lambda progress: replace(progress, last_pronounced_at=_now_iso()),
                 )
+            return
+
+        self._show_tts_status_notice(self._tts_failure_message(), state)
 
     def toggle_details(self) -> None:
         if self.current_word is None:
@@ -532,12 +559,14 @@ class AppController(QObject):
                 word,
                 position=self.settings.card_position,
                 auto_hide_ms=popup_duration_ms,
+                pronunciation_content_mode=self.settings.pronunciation_content_mode,
             )
         else:
             assert self.barrage_popup is not None
             self.barrage_popup.show_popup(
                 word,
                 position=self.settings.barrage_position,
+                pronunciation_content_mode=self.settings.pronunciation_content_mode,
             )
 
         if self.study_store is not None:
@@ -568,6 +597,34 @@ class AppController(QObject):
             on_error=self._log_warning_text,
         )
 
+    def _create_voxcpm_service_manager(self) -> VoxCpmServiceManager:
+        return VoxCpmServiceManager(
+            install_root=Path(self.settings.voxcpm_install_root),
+            model_cache_root=Path(self.settings.voxcpm_model_cache_root),
+            endpoint=self.settings.voxcpm_endpoint,
+            use_model_mirror=self.settings.voxcpm_use_model_mirror,
+            script_root=self._paths.data_dir.parent / "tools" / "voxcpm_service",
+        )
+
+    def _schedule_tts_warm_up(self) -> None:
+        service = self.tts
+        if service is None:
+            return
+        QTimer.singleShot(0, lambda service=service: self._warm_up_tts(service))
+
+    def _warm_up_tts(self, service: PronunciationService) -> None:
+        if self.tts is not service:
+            return
+
+        previous_state = service.initialization_state
+        service.warm_up()
+        if (
+            service.provider is TtsProvider.SYSTEM_QT
+            and previous_state is not TtsInitializationState.READY
+            and service.initialization_state is TtsInitializationState.UNAVAILABLE
+        ):
+            self._show_tts_status_notice(self._tts_init_failure_message(), service.initialization_state)
+
     def _apply_settings(self, new_settings: AppSettings | None = None) -> None:
         previous_settings = self.settings
         target_settings = new_settings or self.settings
@@ -576,7 +633,21 @@ class AppController(QObject):
             or previous_settings.voxcpm_endpoint != target_settings.voxcpm_endpoint
             or previous_settings.voxcpm_timeout_seconds != target_settings.voxcpm_timeout_seconds
         )
+        voxcpm_manager_changed = (
+            previous_settings.voxcpm_install_root != target_settings.voxcpm_install_root
+            or previous_settings.voxcpm_model_cache_root != target_settings.voxcpm_model_cache_root
+            or previous_settings.voxcpm_endpoint != target_settings.voxcpm_endpoint
+            or previous_settings.voxcpm_use_model_mirror != target_settings.voxcpm_use_model_mirror
+        )
         self.settings = target_settings
+
+        if self.voxcpm_service is not None and voxcpm_manager_changed:
+            self.voxcpm_service.configure(
+                install_root=Path(self.settings.voxcpm_install_root),
+                model_cache_root=Path(self.settings.voxcpm_model_cache_root),
+                endpoint=self.settings.voxcpm_endpoint,
+                use_model_mirror=self.settings.voxcpm_use_model_mirror,
+            )
 
         if self.tray is not None:
             self.tray.set_enabled(self.settings.enabled)
@@ -590,6 +661,7 @@ class AppController(QObject):
             if provider_changed:
                 self.tts.stop()
                 self.tts = self._create_tts_service()
+                self._schedule_tts_warm_up()
             else:
                 self.tts.set_accent(self.settings.accent)
 
@@ -599,6 +671,108 @@ class AppController(QObject):
             else:
                 self.scheduler.pause()
                 self._close_active_popup()
+
+        self._refresh_voxcpm_status_in_settings()
+
+    def install_voxcpm_from_settings(self) -> None:
+        self._apply_open_settings_dialog_values()
+        if self.voxcpm_service is None:
+            return
+        started = self.voxcpm_service.install_async()
+        self._refresh_voxcpm_status_in_settings()
+        if self.tray is not None:
+            self.tray.show_message(
+                "oh my word",
+                "VoxCPM 已开始后台安装。" if started else self.voxcpm_service.status().message,
+            )
+
+    def start_voxcpm_service_from_settings(self) -> None:
+        self._apply_open_settings_dialog_values()
+        if self.voxcpm_service is None:
+            return
+        started = self.voxcpm_service.start_service()
+        self._refresh_voxcpm_status_in_settings()
+        if self.tray is not None:
+            self.tray.show_message(
+                "oh my word",
+                "VoxCPM 本地服务正在启动。" if started else self.voxcpm_service.status().message,
+            )
+
+    def stop_voxcpm_service(self) -> None:
+        if self.voxcpm_service is None:
+            return
+        stopped = self.voxcpm_service.stop_service()
+        self._refresh_voxcpm_status_in_settings()
+        if self.tray is not None:
+            self.tray.show_message(
+                "oh my word",
+                "VoxCPM 本地服务已停止。" if stopped else self.voxcpm_service.status().message,
+            )
+
+    def check_voxcpm_service(self) -> None:
+        if self.voxcpm_service is None:
+            return
+        healthy = self.voxcpm_service.health_check()
+        self._refresh_voxcpm_status_in_settings()
+        if self.tray is not None:
+            self.tray.show_message(
+                "oh my word",
+                "VoxCPM 本地服务正常。" if healthy else self.voxcpm_service.status().message,
+            )
+
+    def open_voxcpm_install_log(self) -> None:
+        if self.voxcpm_service is None:
+            return
+        log_path = self.voxcpm_service.log_path
+        if not log_path.exists():
+            if self.tray is not None:
+                self.tray.show_message("oh my word", "还没有 VoxCPM 安装日志。")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_path)))
+
+    def _apply_open_settings_dialog_values(self) -> None:
+        if self.settings_window is None:
+            return
+        settings = self.settings_window.get_settings()
+        if self.settings_store is not None:
+            settings = self.settings_store.save(settings)
+        self._apply_settings(settings)
+
+    def _maybe_start_voxcpm_for_pronunciation(self) -> bool:
+        if (
+            self.settings.tts_provider is not TtsProvider.VOXCPM_LOCAL
+            or not self.settings.voxcpm_auto_start
+            or self.voxcpm_service is None
+        ):
+            return False
+        if self.voxcpm_service.is_running():
+            return False
+        if self.voxcpm_service.health_check():
+            self._refresh_voxcpm_status_in_settings()
+            return False
+        if not self.voxcpm_service.is_installed():
+            self._show_voxcpm_notice("VoxCPM 尚未安装，请在设置中后台安装后再使用。")
+            self._refresh_voxcpm_status_in_settings()
+            return True
+
+        if self.voxcpm_service.start_service():
+            self._show_voxcpm_notice("VoxCPM 本地服务正在启动，请稍后再试。")
+        else:
+            self._show_voxcpm_notice(self.voxcpm_service.status().message)
+        self._refresh_voxcpm_status_in_settings()
+        return True
+
+    def _show_voxcpm_notice(self, message: str | None) -> None:
+        if message and self.tray is not None:
+            self.tray.show_message("oh my word", message)
+
+    def _on_voxcpm_status_changed(self, status: VoxCpmServiceStatus) -> None:
+        if self.settings_window is not None:
+            self.settings_window.set_voxcpm_status(status)
+
+    def _refresh_voxcpm_status_in_settings(self) -> None:
+        if self.settings_window is not None and self.voxcpm_service is not None:
+            self.settings_window.set_voxcpm_status(self.voxcpm_service.status())
 
     def _wire_overlay_signals(self) -> None:
         assert self.card_popup is not None and self.barrage_popup is not None
@@ -740,6 +914,47 @@ class AppController(QObject):
     def _log_warning_text(self, message: str) -> None:
         self._log_warning("%s", message)
 
+    def _show_tts_status_notice(self, message: str | None, state: TtsInitializationState) -> None:
+        if message is None or self.tray is None:
+            return
+
+        if state in {TtsInitializationState.NOT_INITIALIZED, TtsInitializationState.INITIALIZING}:
+            notice_key = f"{id(self.tts)}:initializing"
+        else:
+            notice_key = f"{id(self.tts)}:{state.value}:{message}"
+
+        now = monotonic()
+        if self._last_tts_notice_key == notice_key and now - self._last_tts_notice_at < 5:
+            return
+
+        self._last_tts_notice_key = notice_key
+        self._last_tts_notice_at = now
+        self.tray.show_message("oh my word", message)
+
+    def _tts_status_message(self, state: TtsInitializationState) -> str | None:
+        if self.tts is None:
+            return None
+
+        if state in {TtsInitializationState.NOT_INITIALIZED, TtsInitializationState.INITIALIZING}:
+            return "语音正在初始化，请稍后"
+        if state is TtsInitializationState.UNAVAILABLE:
+            if self.tts.provider is TtsProvider.SYSTEM_QT:
+                return self._tts_init_failure_message()
+            if self.tts.last_error:
+                return f"语音不可用：{self.tts.last_error}"
+            return "语音暂时不可用。"
+        return None
+
+    def _tts_init_failure_message(self) -> str:
+        if self.tts is None or not self.tts.last_error:
+            return "语音暂时不可用。"
+        return f"语音初始化失败：{self.tts.last_error}"
+
+    def _tts_failure_message(self) -> str:
+        if self.tts is None or not self.tts.last_error:
+            return "语音朗读失败。"
+        return f"语音朗读失败：{self.tts.last_error}"
+
     def _notify_hotkey_registration_errors(self) -> None:
         if self.hotkeys is None:
             return
@@ -794,9 +1009,3 @@ class AppController(QObject):
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
-
-
-def _pronunciation_text(entry: WordEntry) -> str:
-    if entry.example_sentence and entry.example_sentence.strip() and entry.example_sentence.casefold() != entry.word.casefold():
-        return f"{entry.word}. {entry.example_sentence.strip()}"
-    return entry.word

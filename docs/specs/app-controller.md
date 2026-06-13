@@ -8,6 +8,7 @@
 
 - `main.py` 创建 `QApplication`，关闭最后窗口不退出应用，然后创建并初始化 `AppController`。
 - `AppController.initialize()` 负责创建运行目录、logger、设置存储、学习状态存储、活动监控、词库、弹窗、托盘、全局热键、TTS 和 Qt 调度器。
+- `AppController.initialize()` 只轻量创建 TTS 服务；`system_qt` 后端通过 `QTimer.singleShot` 在事件循环启动后延迟 warm-up，不应在初始化阶段同步完成 Qt TTS backend 构造。
 - 首次启动或系统托盘不可用时，controller 打开设置窗口。
 - controller 是唯一协调层：弹窗、托盘、热键只发出用户意图，学习状态修改由 controller 接管。
 - `current_word` 表示当前可见或刚被操作的词。关闭活动弹窗时必须同步清空它。
@@ -26,6 +27,8 @@ controller 接收 `SchedulerAction`：
 当前弹窗支持以下动作：
 
 - 朗读：调用 TTS，成功后记录 `last_pronounced_at`。
+- 当 TTS 仍处于 `not_initialized` / `initializing` 时，controller 不应阻塞等待 backend；应直接提示“语音正在初始化，请稍后”。
+- 当 TTS 处于 `unavailable` 或朗读失败时，controller 应通过托盘提示失败原因；同一初始化阶段的提示需要节流，避免重复刷屏。
 - 展开详情：切换可见弹窗详情，记录 `last_expanded_at`。
 - 标记掌握：记录 mastered 并关闭弹窗。
 - 认识/不认识：记录复习结果并关闭弹窗。

@@ -28,10 +28,17 @@
 - 卡片停留时长。
 - 稍后时长，默认 30 分钟。
 - 静音和英/美音偏好。
+- 朗读内容：`pronunciation_content_mode` 默认 `word_and_example`，可选 `word`、`example`、`word_and_example`。
 - 发音 provider：`tts_provider` 默认 `system_qt`，可选 `voxcpm_local`。
 - VoxCPM 本地服务地址：`voxcpm_endpoint` 默认 `http://127.0.0.1:8808`，第一版只允许本地 HTTP endpoint。
 - VoxCPM 请求超时：`voxcpm_timeout_seconds` 默认 15 秒，规范化范围为 1 到 120 秒。
+- VoxCPM 安装目录：`voxcpm_install_root` 默认 `%LOCALAPPDATA%\OhMyWord\voxcpm`，用于保存独立 venv、服务脚本和安装日志。
+- VoxCPM 模型缓存目录：`voxcpm_model_cache_root` 默认 `%LOCALAPPDATA%\OhMyWord\voxcpm\models`，用于保存 VoxCPM2 模型文件并传递给 service-only 安装脚本。
+- VoxCPM 模型下载镜像：`voxcpm_use_model_mirror` 默认 `true`，设置页后台安装时优先使用 ModelScope/hf-mirror 路径。
+- VoxCPM 使用时自动启动：`voxcpm_auto_start` 默认 `false`。只有用户选择 `voxcpm_local` 并打开该开关后，controller 才会在朗读时尝试启动已安装的本地服务。
 - 朗读、详情、立刻弹出、标记掌握、认识、不认识、关闭快捷键。
+
+设置窗口必须按类别组织：学习、显示、发音、快捷键、词库、关于。朗读内容、口音、发音引擎、VoxCPM 安装目录、模型目录、镜像开关、使用时自动启动开关、安装/启动/停止/检测/打开日志入口属于发音分类。关于分类必须显示当前应用版本和更新日志；版本来源应来自代码内单一版本源，不应在 UI 中手写另一个版本号。
 
 字段新增时必须同步：
 

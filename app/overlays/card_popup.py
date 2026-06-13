@@ -20,6 +20,9 @@ from PySide6.QtWidgets import (
 if TYPE_CHECKING:
     from app.models import WordEntry
 
+from app.models import PronunciationContentMode
+from app.pronunciation import pronunciation_text
+
 
 _POSITION_ALIASES = {
     "near_mouse": "near_mouse",
@@ -144,14 +147,6 @@ def _example_lines(entry: Any) -> list[str]:
     return lines
 
 
-def _pronunciation_text(entry: Any) -> str:
-    term = _first_text(entry, "term", "word", "text")
-    example_sentence = _first_text(entry, "example_sentence", "sentence", "example")
-    if term and example_sentence and example_sentence.casefold() != term.casefold():
-        return f"{term}. {example_sentence}"
-    return term or example_sentence
-
-
 def _screen_rect(anchor: QPoint | None = None) -> QRect:
     from PySide6.QtWidgets import QApplication
 
@@ -220,6 +215,7 @@ class CardPopup(QFrame):
         self._pending_hide_ms = 0
         self._drag_offset: QPoint | None = None
         self._manual_positioned = False
+        self._pronunciation_content_mode = PronunciationContentMode.WORD_AND_EXAMPLE
 
         self._auto_hide_timer = QTimer(self)
         self._auto_hide_timer.setSingleShot(True)
@@ -265,6 +261,9 @@ class CardPopup(QFrame):
     def set_position_mode(self, position: Any) -> None:
         self._position_mode = _normalize_position(position)
 
+    def set_pronunciation_content_mode(self, mode: PronunciationContentMode) -> None:
+        self._pronunciation_content_mode = mode
+
     def reposition(self, position: Any | None = None, anchor: QPoint | None = None) -> None:
         if position is not None:
             self.set_position_mode(position)
@@ -279,8 +278,11 @@ class CardPopup(QFrame):
         *,
         anchor: QPoint | None = None,
         auto_hide_ms: int | None = None,
+        pronunciation_content_mode: PronunciationContentMode | None = None,
     ) -> None:
         self._manual_positioned = False
+        if pronunciation_content_mode is not None:
+            self.set_pronunciation_content_mode(pronunciation_content_mode)
         self.set_entry(entry)
         self.reposition(position=position, anchor=anchor)
         self.show()
@@ -501,7 +503,7 @@ class CardPopup(QFrame):
     def _emit_pronounce(self) -> None:
         if self._entry is None:
             return
-        text = _pronunciation_text(self._entry)
+        text = pronunciation_text(self._entry, self._pronunciation_content_mode)
         if text:
             self.pronounce.emit(text)
 

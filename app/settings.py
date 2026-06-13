@@ -28,10 +28,13 @@ from .models import (
     DEFAULT_TOGGLE_DETAIL_HOTKEY,
     DEFAULT_TRIGGER_NOW_HOTKEY,
     DEFAULT_VOXCPM_ENDPOINT,
+    DEFAULT_VOXCPM_INSTALL_ROOT,
+    DEFAULT_VOXCPM_MODEL_CACHE_ROOT,
     DEFAULT_VOXCPM_TIMEOUT_SECONDS,
     DisplayMode,
     LearningState,
     OverlayPosition,
+    PronunciationContentMode,
     TtsProvider,
     WordProgress,
 )
@@ -160,6 +163,11 @@ def normalize_settings(payload: Any) -> AppSettings:
             DEFAULT_SNOOZE_MINUTES,
         ),
         mute_pronunciation=_normalize_bool(data.get("mute_pronunciation"), defaults.mute_pronunciation),
+        pronunciation_content_mode=_normalize_enum(
+            data.get("pronunciation_content_mode"),
+            PronunciationContentMode,
+            defaults.pronunciation_content_mode,
+        ),
         accent=_normalize_enum(data.get("accent"), Accent, defaults.accent),
         tts_provider=_normalize_enum(data.get("tts_provider"), TtsProvider, defaults.tts_provider),
         voxcpm_endpoint=_normalize_local_http_endpoint(
@@ -169,6 +177,22 @@ def normalize_settings(payload: Any) -> AppSettings:
         voxcpm_timeout_seconds=_normalize_timeout_seconds(
             data.get("voxcpm_timeout_seconds"),
             DEFAULT_VOXCPM_TIMEOUT_SECONDS,
+        ),
+        voxcpm_install_root=_normalize_path_text(
+            data.get("voxcpm_install_root"),
+            DEFAULT_VOXCPM_INSTALL_ROOT,
+        ),
+        voxcpm_model_cache_root=_normalize_path_text(
+            data.get("voxcpm_model_cache_root"),
+            DEFAULT_VOXCPM_MODEL_CACHE_ROOT,
+        ),
+        voxcpm_use_model_mirror=_normalize_bool(
+            data.get("voxcpm_use_model_mirror"),
+            defaults.voxcpm_use_model_mirror,
+        ),
+        voxcpm_auto_start=_normalize_bool(
+            data.get("voxcpm_auto_start"),
+            defaults.voxcpm_auto_start,
         ),
         pronounce_hotkey=_normalize_hotkey(
             data.get("pronounce_hotkey"),
@@ -249,10 +273,15 @@ def settings_to_dict(settings: AppSettings) -> dict[str, Any]:
         "popup_duration_seconds": settings.popup_duration_seconds,
         "snooze_minutes": settings.snooze_minutes,
         "mute_pronunciation": settings.mute_pronunciation,
+        "pronunciation_content_mode": settings.pronunciation_content_mode.value,
         "accent": settings.accent.value,
         "tts_provider": settings.tts_provider.value,
         "voxcpm_endpoint": settings.voxcpm_endpoint,
         "voxcpm_timeout_seconds": settings.voxcpm_timeout_seconds,
+        "voxcpm_install_root": settings.voxcpm_install_root,
+        "voxcpm_model_cache_root": settings.voxcpm_model_cache_root,
+        "voxcpm_use_model_mirror": settings.voxcpm_use_model_mirror,
+        "voxcpm_auto_start": settings.voxcpm_auto_start,
         "pronounce_hotkey": settings.pronounce_hotkey,
         "toggle_detail_hotkey": settings.toggle_detail_hotkey,
         "trigger_now_hotkey": settings.trigger_now_hotkey,
@@ -370,6 +399,16 @@ def _normalize_local_http_endpoint(value: Any, default: str = DEFAULT_VOXCPM_END
 def _normalize_timeout_seconds(value: Any, default: int) -> int:
     timeout = _normalize_positive_int(value, default)
     return min(max(timeout, 1), 120)
+
+
+def _normalize_path_text(value: Any, default: str) -> str:
+    normalized = _normalize_optional_text(value)
+    if normalized is None:
+        return default
+    expanded = os.path.expandvars(os.path.expanduser(normalized.strip().strip('"')))
+    if not expanded.strip():
+        return default
+    return str(Path(expanded))
 
 
 def _normalize_non_negative_int(value: Any, default: int) -> int:

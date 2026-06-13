@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+import os
+from pathlib import Path
 
 
 class DisplayMode(str, Enum):
@@ -27,6 +29,19 @@ class TtsProvider(str, Enum):
     VOXCPM_LOCAL = "voxcpm_local"
 
 
+class PronunciationContentMode(str, Enum):
+    WORD = "word"
+    EXAMPLE = "example"
+    WORD_AND_EXAMPLE = "word_and_example"
+
+
+class TtsInitializationState(str, Enum):
+    NOT_INITIALIZED = "not_initialized"
+    INITIALIZING = "initializing"
+    READY = "ready"
+    UNAVAILABLE = "unavailable"
+
+
 DEFAULT_MIN_DELAY_MINUTES = 8
 DEFAULT_MAX_DELAY_MINUTES = 20
 DEFAULT_BUSY_STOP_THRESHOLD_SECONDS = 8
@@ -37,6 +52,12 @@ DEFAULT_SNOOZE_MINUTES = 30
 DEFAULT_RECENT_WORDS_LIMIT = 20
 DEFAULT_VOXCPM_ENDPOINT = "http://127.0.0.1:8808"
 DEFAULT_VOXCPM_TIMEOUT_SECONDS = 15
+DEFAULT_VOXCPM_INSTALL_ROOT = str(
+    Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
+    / "OhMyWord"
+    / "voxcpm"
+)
+DEFAULT_VOXCPM_MODEL_CACHE_ROOT = str(Path(DEFAULT_VOXCPM_INSTALL_ROOT) / "models")
 
 DEFAULT_PRONOUNCE_HOTKEY = "Ctrl+Alt+1"
 DEFAULT_TOGGLE_DETAIL_HOTKEY = "Ctrl+Alt+2"
@@ -61,10 +82,15 @@ class AppSettings:
     popup_duration_seconds: int = DEFAULT_POPUP_DURATION_SECONDS
     snooze_minutes: int = DEFAULT_SNOOZE_MINUTES
     mute_pronunciation: bool = False
+    pronunciation_content_mode: PronunciationContentMode = PronunciationContentMode.WORD_AND_EXAMPLE
     accent: Accent = Accent.US
     tts_provider: TtsProvider = TtsProvider.SYSTEM_QT
     voxcpm_endpoint: str = DEFAULT_VOXCPM_ENDPOINT
     voxcpm_timeout_seconds: int = DEFAULT_VOXCPM_TIMEOUT_SECONDS
+    voxcpm_install_root: str = DEFAULT_VOXCPM_INSTALL_ROOT
+    voxcpm_model_cache_root: str = DEFAULT_VOXCPM_MODEL_CACHE_ROOT
+    voxcpm_use_model_mirror: bool = True
+    voxcpm_auto_start: bool = False
     pronounce_hotkey: str = DEFAULT_PRONOUNCE_HOTKEY
     toggle_detail_hotkey: str = DEFAULT_TOGGLE_DETAIL_HOTKEY
     trigger_now_hotkey: str = DEFAULT_TRIGGER_NOW_HOTKEY

@@ -2,6 +2,8 @@
 
 一个 Windows-first 的 `oh my word` Python 便携重写版，技术栈为 `Python + PySide6`。
 
+当前版本：`v0.1.2`。设置窗口的“关于”页会显示当前版本和更新日志。
+
 ## 范围
 
 - 系统托盘优先
@@ -45,7 +47,7 @@ py -3.11 main.py
 
 ## 默认热键
 
-- `Ctrl+Alt+1`：朗读当前单词和英文例句
+- `Ctrl+Alt+1`：按设置中的“朗读内容”朗读当前词条
 - `Ctrl+Alt+2`：切换弹窗详情
 - `Ctrl+Alt+3`：立即触发下一个单词
 - `Ctrl+Alt+4`：将当前单词标记为已掌握
@@ -63,7 +65,7 @@ py -3.11 main.py
 
 `settings.json` 只保存用户配置。`oh_my_word.sqlite3` 保存卡片学习状态、近期单词、FSRS 载荷、复习日志、稍后状态和全局暂停状态。`learning_state.json` 是旧版学习状态文件；如果存在，应用会在启动时兼容导入，不会删除它。
 
-发音设置保存在 `settings.json` 中：`tts_provider` 默认为 `system_qt`，可选值 `voxcpm_local` 表示调用用户本机的 VoxCPM companion process；`voxcpm_endpoint` 第一版只接受本地 HTTP 地址（默认 `http://127.0.0.1:8808`）；`voxcpm_timeout_seconds` 默认为 15 秒。
+发音设置保存在 `settings.json` 中：`pronunciation_content_mode` 默认为 `word_and_example`，可在设置页选择只读单词、只读例句或单词加例句；`tts_provider` 默认为 `system_qt`，可选值 `voxcpm_local` 表示调用用户本机的 VoxCPM companion process；`voxcpm_endpoint` 第一版只接受本地 HTTP 地址（默认 `http://127.0.0.1:8808`）；`voxcpm_timeout_seconds` 默认为 15 秒。VoxCPM 相关设置还包括 `voxcpm_install_root`、`voxcpm_model_cache_root`、`voxcpm_use_model_mirror` 和 `voxcpm_auto_start`，用于设置页后台安装、选择模型目录和控制使用时自动启动。
 
 ## 词库
 
@@ -129,11 +131,13 @@ py -3.11 -m pytest tests -q
 .\build\build_installer.ps1
 ```
 
-该脚本会先构建 portable 版本，再生成 `dist/oh-my-word-setup.exe`。安装包提供简单的 Windows 图形界面，允许用户选择安装目录，并可选择创建桌面/开始菜单快捷方式和安装完成后启动应用。
+该脚本会先构建 portable 版本，再生成带版本号的安装包，例如当前版本输出为 `dist/oh-my-word-setup-v0.1.2.exe`。安装包提供简单的 Windows 图形界面，允许用户选择安装目录，并可选择创建桌面/开始菜单快捷方式和安装完成后启动应用。
 
 安装器会用安装清单管理应用文件。用户选择已有目录时，安装器不会递归清空整个目录；卸载脚本只删除清单中的应用文件和相关快捷方式。
 
-安装器提供可选的 `Install local VoxCPM pronunciation engine` 入口，默认关闭。勾选后会在主应用文件安装完成后启动本机 VoxCPM 设置脚本，在用户目录（默认 `%LOCALAPPDATA%\OhMyWord\voxcpm`）创建独立 venv 并安装 service-only 依赖。该步骤可能下载数 GB 模型，推荐 NVIDIA GPU 8 GB+ VRAM；CPU 可用但较慢。VoxCPM 设置失败不会回滚或阻止主应用安装，应用仍保持 `system_qt` 发音引擎。
+安装器提供可选的 `Install local VoxCPM pronunciation engine` 入口，默认关闭。勾选后会在主应用文件安装完成后启动本机 VoxCPM 设置脚本，在用户目录（默认 `%LOCALAPPDATA%\OhMyWord\voxcpm`）创建独立 venv 并安装 service-only 依赖。VoxCPM 模型缓存目录可在安装器中选择，默认 `%LOCALAPPDATA%\OhMyWord\voxcpm\models`，安装脚本会通过 `ModelCacheRoot` 设置 `HF_HOME` 和 `HF_HUB_CACHE`，避免依赖全局 Hugging Face 默认缓存目录。安装器还提供 `Use model download mirror` 选项，默认勾选；镜像模式会优先从 ModelScope 下载 VoxCPM2 文件，失败时回退到 hf-mirror，用于降低直接访问 Hugging Face 下载模型时的失败率。该步骤可能下载数 GB 模型，推荐 NVIDIA GPU 8 GB+ VRAM；CPU 可用但较慢。VoxCPM 设置失败不会回滚或阻止主应用安装，应用仍保持 `system_qt` 发音引擎。
+
+如果安装时未勾选 VoxCPM，也可以之后在应用设置页的“发音”分类中后台安装或更新。设置页允许用户选择 VoxCPM 安装目录、模型目录、下载镜像开关，并提供检测、启动服务、停止服务和打开日志入口。`voxcpm_auto_start` 默认关闭；用户选择 `VoxCPM 本地服务` 并打开“使用时自动启动”后，应用会在朗读时启动已安装的本地服务。未安装时不会静默下载数 GB 模型，而是提示用户去设置页后台安装。
 
 ## VoxCPM 本地发音
 
@@ -144,6 +148,10 @@ VoxCPM 不部署到云端服务器。桌面应用只通过 `127.0.0.1`/`localhos
 ```
 
 VoxCPM、PyTorch、CUDA、模型权重和相关依赖不进入根 `requirements.txt`，也不打包进主 EXE 或 portable payload。相关说明见 `tools/voxcpm_service/README.md`。
+安装器路径会生成 `%LOCALAPPDATA%\OhMyWord\voxcpm\start_service.ps1`，用于以同一个模型缓存目录启动本地服务。
+应用设置页也可以调用安装包内的 `tools/voxcpm_service/install_local.ps1` 完成同样的本地部署；主程序只携带轻量 service-only 文件（`install_local.ps1`、`server.py`、`engine.py`、`requirements.txt`、`README.md`），不携带已安装 `.venv`、模型权重、Torch/CUDA wheel 或 Hugging Face/ModelScope 缓存。用户未勾选安装器 VoxCPM 选项、也未在设置页点击后台安装/更新时，不会下载模型、创建 venv、安装 Torch 或启动 VoxCPM 服务。
+
+VoxCPM provider 默认优先调用 `POST /synthesize_stream`，服务端使用 VoxCPM 的 `generate_streaming()` 输出 `s16le` PCM chunk，桌面端用 `QAudioSink` 边接收边播放，降低长句等待完整 WAV 的延迟。旧服务不支持流式 endpoint 时，客户端会回退到 `POST /synthesize` 的完整 WAV 播放路径。service 显式启用 VoxCPM 官方 badcase 重试参数，并在流式和完整 WAV 输出首尾加入短静音垫，降低短词起音和尾音被截断的概率；默认 `cfg_value` 为 `1.5`，可通过 `VOXCPM_CFG_VALUE` 环境变量微调。
 
 ## 备注
 

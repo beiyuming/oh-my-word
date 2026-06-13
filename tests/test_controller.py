@@ -13,7 +13,14 @@ from PySide6.QtWidgets import QApplication, QStyle, QSystemTrayIcon
 
 from app.controller import AppController, AppPaths
 from app.fsrs_service import ProjectReviewRating
-from app.models import AppSettings, TtsProvider, WordEntry, WordSelectionResult
+from app.models import (
+    AppSettings,
+    PronunciationContentMode,
+    TtsInitializationState,
+    TtsProvider,
+    WordEntry,
+    WordSelectionResult,
+)
 from app.tray import TrayController
 from app.words import WordCatalog
 
@@ -168,6 +175,7 @@ class ControllerPopupActionTests(unittest.TestCase):
         controller.settings = AppSettings()
         controller.current_word = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
         controller.tts = Mock()
+        controller.tts.initialization_state = TtsInitializationState.READY
         controller.tts.speak.return_value = True
         controller.study_store = Mock()
 
@@ -176,11 +184,22 @@ class ControllerPopupActionTests(unittest.TestCase):
         controller.tts.speak.assert_called_once_with("focus. Focus on review.", accent=controller.settings.accent)
         controller.study_store.record_word_pronounced.assert_called_once_with("focus", pronounced_at=ANY)
 
+    def test_pronounce_current_word_uses_configured_pronunciation_content_mode(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings(pronunciation_content_mode=PronunciationContentMode.EXAMPLE)
+        controller.current_word = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
+        controller.pronounce_text = Mock()
+
+        controller.pronounce_current_word()
+
+        controller.pronounce_text.assert_called_once_with("Focus on review.")
+
     def test_pronounce_failure_does_not_record_pronounced_at(self) -> None:
         controller = AppController(self.app)
         controller.settings = AppSettings()
         controller.current_word = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
         controller.tts = Mock()
+        controller.tts.initialization_state = TtsInitializationState.READY
         controller.tts.speak.return_value = False
         controller.study_store = Mock()
 
@@ -188,6 +207,57 @@ class ControllerPopupActionTests(unittest.TestCase):
 
         controller.tts.speak.assert_called_once_with("focus. Focus on review.", accent=controller.settings.accent)
         controller.study_store.record_word_pronounced.assert_not_called()
+
+    def test_pronounce_text_shows_initialization_notice_when_tts_is_not_ready(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings()
+        controller.current_word = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
+        controller.tts = Mock()
+        controller.tts.initialization_state = TtsInitializationState.NOT_INITIALIZED
+        controller.tts.provider = TtsProvider.SYSTEM_QT
+        controller.tts.speak = Mock()
+        controller.tray = Mock()
+
+        controller.pronounce_text("focus. Focus on review.")
+
+        controller.tts.speak.assert_not_called()
+        controller.tray.show_message.assert_called_once_with("oh my word", "语音正在初始化，请稍后")
+
+    def test_pronounce_text_throttles_initialization_notice(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings()
+        controller.current_word = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
+        controller.tts = Mock()
+        controller.tts.initialization_state = TtsInitializationState.INITIALIZING
+        controller.tts.provider = TtsProvider.SYSTEM_QT
+        controller.tts.speak = Mock()
+        controller.tray = Mock()
+
+        with patch("app.controller.monotonic", side_effect=[100.0, 101.0]):
+            controller.pronounce_text("focus. Focus on review.")
+            controller.pronounce_text("focus. Focus on review.")
+
+        controller.tts.speak.assert_not_called()
+        controller.tray.show_message.assert_called_once_with("oh my word", "语音正在初始化，请稍后")
+
+    def test_pronounce_text_shows_unavailable_reason_when_tts_is_unavailable(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings()
+        controller.current_word = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
+        controller.tts = Mock()
+        controller.tts.initialization_state = TtsInitializationState.UNAVAILABLE
+        controller.tts.provider = TtsProvider.SYSTEM_QT
+        controller.tts.last_error = "PySide6 QtTextToSpeech is not installed."
+        controller.tts.speak = Mock()
+        controller.tray = Mock()
+
+        controller.pronounce_text("focus. Focus on review.")
+
+        controller.tts.speak.assert_not_called()
+        controller.tray.show_message.assert_called_once_with(
+            "oh my word",
+            "语音初始化失败：PySide6 QtTextToSpeech is not installed.",
+        )
 
     def test_apply_settings_rebuilds_tts_when_provider_changes(self) -> None:
         controller = AppController(self.app)
@@ -209,6 +279,104 @@ class ControllerPopupActionTests(unittest.TestCase):
         old_tts.stop.assert_called_once_with()
         service_class.assert_called_once()
         self.assertIs(controller.settings.tts_provider, TtsProvider.VOXCPM_LOCAL)
+
+    def test_pronounce_text_autostarts_installed_voxcpm_when_enabled(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings(
+            tts_provider=TtsProvider.VOXCPM_LOCAL,
+            voxcpm_auto_start=True,
+        )
+        controller.current_word = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
+        controller.tts = Mock()
+        controller.tts.initialization_state = TtsInitializationState.READY
+        controller.tts.provider = TtsProvider.VOXCPM_LOCAL
+        controller.tts.speak = Mock()
+        controller.voxcpm_service = Mock()
+        controller.voxcpm_service.is_installed.return_value = True
+        controller.voxcpm_service.is_running.return_value = False
+        controller.voxcpm_service.health_check.return_value = False
+        controller.voxcpm_service.start_service.return_value = True
+        controller.tray = Mock()
+
+        controller.pronounce_text("focus. Focus on review.")
+
+        controller.voxcpm_service.start_service.assert_called_once_with()
+        controller.tts.speak.assert_not_called()
+        controller.tray.show_message.assert_called_once_with("oh my word", "VoxCPM 本地服务正在启动，请稍后再试。")
+
+    def test_pronounce_text_does_not_autoinstall_missing_voxcpm(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings(
+            tts_provider=TtsProvider.VOXCPM_LOCAL,
+            voxcpm_auto_start=True,
+        )
+        controller.current_word = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
+        controller.tts = Mock()
+        controller.tts.initialization_state = TtsInitializationState.READY
+        controller.tts.provider = TtsProvider.VOXCPM_LOCAL
+        controller.tts.speak = Mock()
+        controller.voxcpm_service = Mock()
+        controller.voxcpm_service.is_installed.return_value = False
+        controller.voxcpm_service.is_running.return_value = False
+        controller.voxcpm_service.health_check.return_value = False
+        controller.tray = Mock()
+
+        controller.pronounce_text("focus. Focus on review.")
+
+        controller.voxcpm_service.start_service.assert_not_called()
+        controller.tts.speak.assert_not_called()
+        controller.tray.show_message.assert_called_once_with(
+            "oh my word",
+            "VoxCPM 尚未安装，请在设置中后台安装后再使用。",
+        )
+
+    def test_pronounce_text_uses_voxcpm_when_service_health_check_succeeds(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings(
+            tts_provider=TtsProvider.VOXCPM_LOCAL,
+            voxcpm_auto_start=True,
+        )
+        controller.current_word = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
+        controller.tts = Mock()
+        controller.tts.initialization_state = TtsInitializationState.READY
+        controller.tts.provider = TtsProvider.VOXCPM_LOCAL
+        controller.tts.speak.return_value = True
+        controller.voxcpm_service = Mock()
+        controller.voxcpm_service.is_running.return_value = False
+        controller.voxcpm_service.health_check.return_value = True
+        controller.study_store = Mock()
+
+        controller.pronounce_text("focus. Focus on review.")
+
+        controller.voxcpm_service.start_service.assert_not_called()
+        controller.tts.speak.assert_called_once_with("focus. Focus on review.", accent=controller.settings.accent)
+
+    def test_apply_settings_reconfigures_voxcpm_manager(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings()
+        controller.settings_store = Mock()
+        controller.hotkeys = Mock()
+        controller.hotkeys.registration_errors = {}
+        controller.tray = Mock()
+        controller.scheduler = Mock()
+        controller.tts = Mock()
+        controller.voxcpm_service = Mock()
+
+        new_settings = AppSettings(
+            voxcpm_install_root="D:\\OhMyWord\\voxcpm",
+            voxcpm_model_cache_root="E:\\Models\\VoxCPM2",
+            voxcpm_use_model_mirror=False,
+            voxcpm_endpoint="http://localhost:8810",
+        )
+
+        controller._apply_settings(new_settings)
+
+        controller.voxcpm_service.configure.assert_called_once_with(
+            install_root=Path("D:\\OhMyWord\\voxcpm"),
+            model_cache_root=Path("E:\\Models\\VoxCPM2"),
+            endpoint="http://localhost:8810",
+            use_model_mirror=False,
+        )
 
     def test_request_fresh_word_uses_study_store_selection(self) -> None:
         controller = AppController(self.app)
@@ -236,6 +404,12 @@ class ControllerPopupActionTests(unittest.TestCase):
 
         controller._show_word(entry)
 
+        controller.card_popup.show_popup.assert_called_once_with(
+            entry,
+            position=controller.settings.card_position,
+            auto_hide_ms=controller.settings.popup_duration_seconds * 1000,
+            pronunciation_content_mode=PronunciationContentMode.WORD_AND_EXAMPLE,
+        )
         controller.study_store.record_word_shown.assert_called_once_with("focus", shown_at=ANY)
 
     def test_review_current_word_writes_known_rating_to_study_store(self) -> None:
