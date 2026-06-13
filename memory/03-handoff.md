@@ -25,7 +25,7 @@
 - 不要在文档中重建大范围代码清单；使用 CodeGraph。
 - 不要假设未勾选 dated plan 任务一定未完成或一定已完成。
 - 未经用户确认，不要删除 `storage/`、导入词库、构建输出或未跟踪安装器文件。
-- 除非用户要求，不要提交；但用户已设定发布打包例外：每次完成更新安装包打包后必须提交并推送。
+- 除非用户要求，不要提交；但用户已设定发布打包例外：每次完成更新安装包打包后必须提交、推送、创建同版本 tag，并创建带安装包 asset 的 GitHub Release。
 
 ## 可能的下一步
 
@@ -33,7 +33,7 @@
 - 如果修改运行/数据行为，同步更新 `docs/specs/runtime-and-data-contracts.md`。
 - 如果继续弹窗控制工作，先将 dated Superpowers design/plan 与当前源码和测试对比，再把漂移记录到 `memory/02-risks-blockers.md`。
 - 如果继续 FSRS + SQLite 工作，先读 `docs/specs/settings-and-storage.md`、`docs/specs/study-scheduling.md` 和 dated plan `docs/superpowers/plans/2026-06-08-fsrs-sqlite-scheduling.md`；当前实现已接入 SQLite/FSRS 主路径，但 Windows 运行时检查仍需单独执行。
-- 如果继续打包工作，编辑前检查 `build/`、`oh-my-word-py.spec` 和当前未跟踪安装器文件。当前轻量安装器已能生成带版本号的安装包，但真实安装/卸载交互仍需单独验证。用户已要求：每次完成更新安装包打包后，必须只提交本次发布相关变更并推送到 GitHub；默认不要提交 `dist/` 产物或无关 dirty 文件。安装包二进制应上传到同版本 GitHub Release 附件；如果 `gh`/token/网络/权限不可用，报告失败原因并给出手动 `gh release create/upload` 命令。
+- 如果继续打包工作，编辑前检查 `build/`、`oh-my-word-py.spec` 和当前未跟踪安装器文件。当前轻量安装器已能生成带版本号的安装包，但真实安装/卸载交互仍需单独验证。用户已要求：每次完成更新安装包打包后，必须只提交本次发布相关变更、推送到 GitHub、创建同版本 tag，并创建带安装包 asset 的 GitHub Release；默认不要提交 `dist/` 产物或无关 dirty 文件。如果 `gh`/token/网络/权限不可用，报告失败原因并给出手动 `gh release create/upload` 命令。
 - 如果继续 VoxCPM TTS 工作，当前目标是本机 optional companion process：主程序设置支持 `system_qt` 和 `voxcpm_local`，VoxCPM 通过本地 HTTP endpoint 调用 `tools/voxcpm_service`，安装器入口默认关闭且失败不应影响主安装。仍需在安装了 service-only 依赖和模型的机器上验证真实 VoxCPM 合成播放，以及安装器勾选 VoxCPM 后的长耗时部署交互。
 - 如果继续 VoxCPM 应用内管理工作，重点文件是 `app/voxcpm_service.py`、`app/settings_window.py`、`app/controller.py`、`app/models.py`、`app/settings.py`、`build/build_exe.ps1` 和 `oh-my-word-py.spec`。当前策略是设置页后台安装/启动/停止，`voxcpm_auto_start` 仅在使用时启动已安装服务，不自动安装。
 - 如果继续朗读文本/听感工作，重点文件是 `app/pronunciation.py`、`app/tts.py`、`tools/voxcpm_service/server.py`、`tools/voxcpm_service/engine.py`、`app/controller.py`、`app/overlays/card_popup.py`、`app/overlays/barrage_popup.py`、`app/settings_window.py` 和对应测试。当前默认 `word_and_example` 会生成 `word.\n\nexample_sentence`；VoxCPM 优先走 `/synthesize_stream` + `QAudioSink` 流式 PCM，完整 WAV 作为 fallback，并使用 4 个缓存文件轮换。

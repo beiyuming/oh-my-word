@@ -42,6 +42,7 @@
 - 2026-06-13 v0.1.2 VoxCPM 首尾漏音处理：按 VoxCPM 官方 API 参数显式启用 `retry_badcase=True`、`retry_badcase_max_times=3`，默认 badcase ratio threshold 为 `4.0`；默认 `cfg_value` 降为 `1.5` 并允许通过环境变量微调；完整 WAV 和流式 PCM 都加入短首尾静音垫，降低短词起音/尾音被本机播放截断的概率。
 - 2026-06-13 v0.1.2 验证：先新增失败测试确认 service 缺少 badcase 参数和首尾静音保护；实现后 `py -3.11 -m pytest tests\test_voxcpm_service_files.py tests\test_tts.py tests\test_version.py tests\test_settings_window.py -q` 通过，结果为 44 个测试通过；`py -3.11 -m pytest tests -q` 通过，结果为 144 个测试通过；`.\build\build_installer.ps1` 成功生成 `dist\oh-my-word-setup-v0.1.2.exe`，文件大小 58,176,000 字节，修改时间 2026-06-13 23:07:37；portable payload 中 `_internal\tools\voxcpm_service\` 仅包含 5 个 allowlist 文件，未预打包 `storage`；短启动 `dist\oh-my-word-py\oh-my-word-py.exe` 5 秒成功并生成 exe 同级 `storage\app.log` 和 `oh_my_word.sqlite3`。
 - 2026-06-13 v0.1.2 本机 service 状态：构建后再次检查本机 `127.0.0.1:8808`，`/health` 返回 200，但 `/synthesize_stream` 仍返回 404，说明当前正在运行的 companion service 仍未被本轮打包自动替换。需要通过设置页“后台安装 / 更新”或运行新的 service-only 安装脚本刷新已安装 service 后，才能验证 v0.1.2 的流式和参数改动在本机实际生效。
+- 2026-06-13 v0.1.2 GitHub 发布状态：`main` 已推送到 commit `535ab43 release: v0.1.2`，远端 tag `v0.1.2` 已推送。当前机器没有 `gh` CLI，也没有 `GITHUB_TOKEN/GH_TOKEN`，因此尚未自动创建 GitHub Release 页面，也尚未上传 `dist\oh-my-word-setup-v0.1.2.exe` 作为 release asset。
 - 后续代码变更的默认完整验证命令仍为 `py -3.11 -m pytest tests -q`。
 - 对 UI、托盘、热键或打包变更，还必须执行 Windows 运行时检查；如果没有执行，必须明确说明。
 
