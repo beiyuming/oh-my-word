@@ -13,6 +13,7 @@ from PySide6.QtCore import QCoreApplication, QObject, QLocale, QUrl, Signal
 
 from .models import (
     DEFAULT_VOXCPM_ENDPOINT,
+    DEFAULT_VOXCPM_STREAM_PREBUFFER_SECONDS,
     DEFAULT_VOXCPM_TIMEOUT_SECONDS,
     TtsInitializationState,
     TtsProvider,
@@ -219,11 +220,17 @@ class LocalWavPlayer(QObject):
 
 
 class StreamingPcmPlayer(QObject):
-    def __init__(self, parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        parent: QObject | None = None,
+        *,
+        prebuffer_seconds: float = DEFAULT_VOXCPM_STREAM_PREBUFFER_SECONDS,
+    ) -> None:
         super().__init__(parent)
         self._last_error: str | None = None
         self._sink: Any | None = None
         self._device: Any | None = None
+        self._prebuffer_seconds = min(max(float(prebuffer_seconds), 0.0), 2.0)
 
     @property
     def last_error(self) -> str | None:
@@ -249,6 +256,16 @@ class StreamingPcmPlayer(QObject):
 
         try:
             self.stop()
+            chunk_iter = iter(chunks)
+            prebuffered_chunks = self._prebuffer_chunks(
+                chunk_iter,
+                sample_rate=sample_rate,
+                channels=channels,
+            )
+            if not prebuffered_chunks:
+                self._last_error = "VoxCPM local service returned an empty audio stream."
+                return False
+
             audio_format = QAudioFormat()
             audio_format.setSampleRate(sample_rate)
             audio_format.setChannelCount(channels)
@@ -260,16 +277,15 @@ class StreamingPcmPlayer(QObject):
                 self._last_error = "Could not start streaming audio output."
                 return False
 
-            wrote_any = False
-            for chunk in chunks:
-                if not chunk:
-                    continue
-                wrote_any = True
+            for chunk in prebuffered_chunks:
                 if not self._write_chunk(chunk):
                     return False
-            if not wrote_any:
-                self._last_error = "VoxCPM local service returned an empty audio stream."
-                return False
+
+            for chunk in chunk_iter:
+                if not chunk:
+                    continue
+                if not self._write_chunk(chunk):
+                    return False
         except Exception as exc:  # pragma: no cover - backend-specific failure
             self._last_error = f"Streaming VoxCPM audio failed: {exc}"
             return False
@@ -306,6 +322,25 @@ class StreamingPcmPlayer(QObject):
             stalled_ticks = 0
         return True
 
+    def _prebuffer_chunks(
+        self,
+        chunks: Iterable[bytes],
+        *,
+        sample_rate: int,
+        channels: int,
+    ) -> list[bytes]:
+        target_bytes = int(sample_rate * channels * 2 * self._prebuffer_seconds)
+        buffered: list[bytes] = []
+        buffered_bytes = 0
+        for chunk in chunks:
+            if not chunk:
+                continue
+            buffered.append(chunk)
+            buffered_bytes += len(chunk)
+            if buffered_bytes >= target_bytes:
+                break
+        return buffered
+
 
 _DEFAULT_STREAM_PLAYER = object()
 _PCM_STREAM_READ_SIZE = 32768
@@ -320,12 +355,17 @@ class VoxCpmHttpProvider:
         cache_dir: Path,
         audio_player: LocalWavPlayer | Any | None = None,
         stream_player: Any = _DEFAULT_STREAM_PLAYER,
+        stream_prebuffer_seconds: float = DEFAULT_VOXCPM_STREAM_PREBUFFER_SECONDS,
     ) -> None:
         self._endpoint = endpoint.rstrip("/")
         self._timeout_seconds = timeout_seconds
         self._cache_dir = cache_dir
         self._audio_player = audio_player or LocalWavPlayer()
-        self._stream_player = StreamingPcmPlayer() if stream_player is _DEFAULT_STREAM_PLAYER else stream_player
+        self._stream_player = (
+            StreamingPcmPlayer(prebuffer_seconds=stream_prebuffer_seconds)
+            if stream_player is _DEFAULT_STREAM_PLAYER
+            else stream_player
+        )
         self._last_error: str | None = None
         self._cache_counter = 0
         self._available = _is_local_http_endpoint(self._endpoint)
@@ -473,6 +513,7 @@ class PronunciationService(QObject):
         endpoint: str = DEFAULT_VOXCPM_ENDPOINT,
         timeout_seconds: int = DEFAULT_VOXCPM_TIMEOUT_SECONDS,
         cache_dir: Path | None = None,
+        stream_prebuffer_seconds: float = DEFAULT_VOXCPM_STREAM_PREBUFFER_SECONDS,
         on_error: Callable[[str], Any] | None = None,
     ) -> None:
         super().__init__(parent)
@@ -483,6 +524,7 @@ class PronunciationService(QObject):
             endpoint=endpoint,
             timeout_seconds=timeout_seconds,
             cache_dir=cache_dir,
+            stream_prebuffer_seconds=stream_prebuffer_seconds,
         )
 
         if on_error is not None:
@@ -540,12 +582,14 @@ class PronunciationService(QObject):
         endpoint: str,
         timeout_seconds: int,
         cache_dir: Path | None,
+        stream_prebuffer_seconds: float,
     ) -> QtTextToSpeechProvider | VoxCpmHttpProvider:
         if self._provider_name is TtsProvider.VOXCPM_LOCAL:
             return VoxCpmHttpProvider(
                 endpoint=endpoint,
                 timeout_seconds=timeout_seconds,
                 cache_dir=cache_dir or Path.cwd() / "storage" / "tts_cache",
+                stream_prebuffer_seconds=stream_prebuffer_seconds,
             )
         return QtTextToSpeechProvider(self, accent=accent)
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-APP_VERSION = "0.1.3"
+APP_VERSION = "0.1.5"
 
 
 @dataclass(slots=True, frozen=True)
@@ -14,6 +14,23 @@ class ChangelogEntry:
 
 
 CHANGELOG: tuple[ChangelogEntry, ...] = (
+    ChangelogEntry(
+        version="0.1.5",
+        date="2026-06-14",
+        changes=(
+            "设置页发音分类新增 VoxCPM 流式预缓冲时间，可在 0.00 到 2.00 秒之间调整并保存后立即生效。",
+            "VoxCPM 流式播放会按用户设置先预缓冲 PCM 音频，再启动播放，以降低句中 underflow 卡顿。",
+            "VoxCPM 单词加例句朗读去掉双换行强停顿，改为轻停顿空格，减少句中停顿感。",
+        ),
+    ),
+    ChangelogEntry(
+        version="0.1.4",
+        date="2026-06-14",
+        changes=(
+            "VoxCPM 本地发音新增可自定义的语气提示词，按 VoxCPM Voice Design 格式应用到合成文本。",
+            "VoxCPM 朗读单词时会为单词加英文引号并保留停顿，降低短词首尾偶发漏读的概率。",
+        ),
+    ),
     ChangelogEntry(
         version="0.1.3",
         date="2026-06-13",

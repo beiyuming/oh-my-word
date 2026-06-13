@@ -280,6 +280,32 @@ class ControllerPopupActionTests(unittest.TestCase):
         service_class.assert_called_once()
         self.assertIs(controller.settings.tts_provider, TtsProvider.VOXCPM_LOCAL)
 
+    def test_apply_settings_rebuilds_tts_when_voxcpm_stream_prebuffer_changes(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings(
+            tts_provider=TtsProvider.VOXCPM_LOCAL,
+            voxcpm_stream_prebuffer_seconds=0.35,
+        )
+        controller.settings_store = Mock()
+        controller.hotkeys = Mock()
+        controller.hotkeys.registration_errors = {}
+        controller.tray = Mock()
+        controller.scheduler = Mock()
+        controller.tts = Mock()
+        old_tts = controller.tts
+
+        new_settings = AppSettings(
+            tts_provider=TtsProvider.VOXCPM_LOCAL,
+            voxcpm_stream_prebuffer_seconds=0.75,
+        )
+
+        with patch("app.controller.PronunciationService") as service_class:
+            service_class.return_value = Mock()
+            controller._apply_settings(new_settings)
+
+        old_tts.stop.assert_called_once_with()
+        self.assertEqual(service_class.call_args.kwargs["stream_prebuffer_seconds"], 0.75)
+
     def test_pronounce_text_autostarts_installed_voxcpm_when_enabled(self) -> None:
         controller = AppController(self.app)
         controller.settings = AppSettings(
@@ -349,7 +375,30 @@ class ControllerPopupActionTests(unittest.TestCase):
         controller.pronounce_text("focus. Focus on review.")
 
         controller.voxcpm_service.start_service.assert_not_called()
-        controller.tts.speak.assert_called_once_with("focus. Focus on review.", accent=controller.settings.accent)
+        controller.tts.speak.assert_called_once_with('"focus". Focus on review.', accent=controller.settings.accent)
+
+    def test_pronounce_text_formats_voxcpm_prompt_and_quotes_word(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings(
+            tts_provider=TtsProvider.VOXCPM_LOCAL,
+            pronunciation_content_mode=PronunciationContentMode.WORD_AND_EXAMPLE,
+            voxcpm_voice_prompt="A calm English teacher voice.",
+        )
+        controller.current_word = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
+        controller.tts = Mock()
+        controller.tts.initialization_state = TtsInitializationState.READY
+        controller.tts.provider = TtsProvider.VOXCPM_LOCAL
+        controller.tts.speak.return_value = True
+        controller.voxcpm_service = Mock()
+        controller.voxcpm_service.is_running.return_value = True
+        controller.study_store = Mock()
+
+        controller.pronounce_text("focus. Focus on review.")
+
+        controller.tts.speak.assert_called_once_with(
+            '(A calm English teacher voice.)"focus". Focus on review.',
+            accent=controller.settings.accent,
+        )
 
     def test_apply_settings_reconfigures_voxcpm_manager(self) -> None:
         controller = AppController(self.app)
@@ -377,6 +426,30 @@ class ControllerPopupActionTests(unittest.TestCase):
             endpoint="http://localhost:8810",
             use_model_mirror=False,
         )
+
+    def test_create_tts_service_passes_voxcpm_stream_prebuffer_seconds(self) -> None:
+        controller = AppController(self.app)
+        with TemporaryDirectory() as temp_dir:
+            controller._paths = AppPaths(
+                root_dir=Path(temp_dir),
+                data_dir=Path(temp_dir) / "data",
+                wordbooks_dir=Path(temp_dir) / "data" / "wordbooks",
+                storage_dir=Path(temp_dir) / "storage",
+                settings_path=Path(temp_dir) / "storage" / "settings.json",
+                learning_state_path=Path(temp_dir) / "storage" / "learning_state.json",
+                log_path=Path(temp_dir) / "storage" / "app.log",
+                study_db_path=Path(temp_dir) / "storage" / "oh_my_word.sqlite3",
+            )
+            controller.settings = AppSettings(
+                tts_provider=TtsProvider.VOXCPM_LOCAL,
+                voxcpm_stream_prebuffer_seconds=0.9,
+            )
+
+            with patch("app.controller.PronunciationService") as service_class:
+                service_class.return_value = Mock()
+                controller._create_tts_service()
+
+        self.assertEqual(service_class.call_args.kwargs["stream_prebuffer_seconds"], 0.9)
 
     def test_request_fresh_word_uses_study_store_selection(self) -> None:
         controller = AppController(self.app)

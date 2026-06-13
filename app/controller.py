@@ -31,7 +31,7 @@ from .models import (
 from .overlays.barrage_popup import BarragePopup
 from .overlays.card_popup import CardPopup
 from .fsrs_service import ProjectReviewRating
-from .pronunciation import pronunciation_text
+from .pronunciation import pronunciation_text, voxcpm_pronunciation_text
 from .scheduler import QtScheduler, SchedulerAction, SchedulerActionKind
 from .settings import LearningStateStore, SettingsStore, ensure_storage_layout, setup_app_logger
 from .settings_window import SettingsDialog
@@ -441,7 +441,8 @@ class AppController(QObject):
             self._show_tts_status_notice(self._tts_status_message(state), state)
             return
 
-        if self.tts.speak(text, accent=self.settings.accent):
+        speech_text = self._tts_text_for_current_provider(text)
+        if self.tts.speak(speech_text, accent=self.settings.accent):
             if self.study_store is not None:
                 self.study_store.record_word_pronounced(
                     self.current_word.word,
@@ -455,6 +456,15 @@ class AppController(QObject):
             return
 
         self._show_tts_status_notice(self._tts_failure_message(), state)
+
+    def _tts_text_for_current_provider(self, fallback_text: str) -> str:
+        if self.current_word is None or self.settings.tts_provider is not TtsProvider.VOXCPM_LOCAL:
+            return fallback_text
+        return voxcpm_pronunciation_text(
+            self.current_word,
+            self.settings.pronunciation_content_mode,
+            voice_prompt=self.settings.voxcpm_voice_prompt,
+        )
 
     def toggle_details(self) -> None:
         if self.current_word is None:
@@ -594,6 +604,7 @@ class AppController(QObject):
             endpoint=self.settings.voxcpm_endpoint,
             timeout_seconds=self.settings.voxcpm_timeout_seconds,
             cache_dir=self._paths.storage_dir / "tts_cache",
+            stream_prebuffer_seconds=self.settings.voxcpm_stream_prebuffer_seconds,
             on_error=self._log_warning_text,
         )
 
@@ -632,6 +643,8 @@ class AppController(QObject):
             previous_settings.tts_provider != target_settings.tts_provider
             or previous_settings.voxcpm_endpoint != target_settings.voxcpm_endpoint
             or previous_settings.voxcpm_timeout_seconds != target_settings.voxcpm_timeout_seconds
+            or previous_settings.voxcpm_stream_prebuffer_seconds
+            != target_settings.voxcpm_stream_prebuffer_seconds
         )
         voxcpm_manager_changed = (
             previous_settings.voxcpm_install_root != target_settings.voxcpm_install_root

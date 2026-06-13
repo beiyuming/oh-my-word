@@ -52,6 +52,8 @@ DEFAULT_SNOOZE_MINUTES = 30
 DEFAULT_RECENT_WORDS_LIMIT = 20
 DEFAULT_VOXCPM_ENDPOINT = "http://127.0.0.1:8808"
 DEFAULT_VOXCPM_TIMEOUT_SECONDS = 15
+DEFAULT_VOXCPM_VOICE_PROMPT = ""
+DEFAULT_VOXCPM_STREAM_PREBUFFER_SECONDS = 0.35
 DEFAULT_VOXCPM_INSTALL_ROOT = str(
     Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
     / "OhMyWord"
@@ -91,6 +93,8 @@ class AppSettings:
     voxcpm_model_cache_root: str = DEFAULT_VOXCPM_MODEL_CACHE_ROOT
     voxcpm_use_model_mirror: bool = True
     voxcpm_auto_start: bool = False
+    voxcpm_voice_prompt: str = DEFAULT_VOXCPM_VOICE_PROMPT
+    voxcpm_stream_prebuffer_seconds: float = DEFAULT_VOXCPM_STREAM_PREBUFFER_SECONDS
     pronounce_hotkey: str = DEFAULT_PRONOUNCE_HOTKEY
     toggle_detail_hotkey: str = DEFAULT_TOGGLE_DETAIL_HOTKEY
     trigger_now_hotkey: str = DEFAULT_TRIGGER_NOW_HOTKEY

@@ -61,6 +61,8 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual(settings.voxcpm_model_cache_root, DEFAULT_VOXCPM_MODEL_CACHE_ROOT)
         self.assertTrue(settings.voxcpm_use_model_mirror)
         self.assertFalse(settings.voxcpm_auto_start)
+        self.assertEqual(settings.voxcpm_voice_prompt, "")
+        self.assertEqual(settings.voxcpm_stream_prebuffer_seconds, 0.35)
         self.assertIs(settings.pronunciation_content_mode, PronunciationContentMode.WORD_AND_EXAMPLE)
 
     def test_loads_defaults_when_missing(self) -> None:
@@ -147,6 +149,8 @@ class SettingsStoreTests(unittest.TestCase):
                         "voxcpm_model_cache_root": "D:\\Models\\VoxCPM2",
                         "voxcpm_use_model_mirror": False,
                         "voxcpm_auto_start": True,
+                        "voxcpm_voice_prompt": "  A calm English teacher voice.  ",
+                        "voxcpm_stream_prebuffer_seconds": 0.8,
                     }
                 ),
                 encoding="utf-8",
@@ -165,6 +169,8 @@ class SettingsStoreTests(unittest.TestCase):
             self.assertEqual(settings.voxcpm_model_cache_root, str(Path("D:\\Models\\VoxCPM2")))
             self.assertFalse(settings.voxcpm_use_model_mirror)
             self.assertTrue(settings.voxcpm_auto_start)
+            self.assertEqual(settings.voxcpm_voice_prompt, "A calm English teacher voice.")
+            self.assertEqual(settings.voxcpm_stream_prebuffer_seconds, 0.8)
 
     def test_rejects_non_local_voxcpm_endpoint(self) -> None:
         with TemporaryDirectory() as tmp_dir:
@@ -180,6 +186,8 @@ class SettingsStoreTests(unittest.TestCase):
                         "voxcpm_model_cache_root": [],
                         "voxcpm_use_model_mirror": "yes",
                         "voxcpm_auto_start": 1,
+                        "voxcpm_voice_prompt": [],
+                        "voxcpm_stream_prebuffer_seconds": -1,
                     }
                 ),
                 encoding="utf-8",
@@ -194,6 +202,8 @@ class SettingsStoreTests(unittest.TestCase):
             self.assertEqual(settings.voxcpm_model_cache_root, DEFAULT_VOXCPM_MODEL_CACHE_ROOT)
             self.assertTrue(settings.voxcpm_use_model_mirror)
             self.assertFalse(settings.voxcpm_auto_start)
+            self.assertEqual(settings.voxcpm_voice_prompt, "")
+            self.assertEqual(settings.voxcpm_stream_prebuffer_seconds, 0.35)
 
     def test_persists_tts_provider_settings(self) -> None:
         payload = settings_to_dict(
@@ -206,6 +216,8 @@ class SettingsStoreTests(unittest.TestCase):
                 voxcpm_model_cache_root="E:\\Models\\VoxCPM2",
                 voxcpm_use_model_mirror=False,
                 voxcpm_auto_start=True,
+                voxcpm_voice_prompt="A calm English teacher voice.",
+                voxcpm_stream_prebuffer_seconds=0.65,
             )
         )
 
@@ -217,6 +229,8 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual(payload["voxcpm_model_cache_root"], "E:\\Models\\VoxCPM2")
         self.assertFalse(payload["voxcpm_use_model_mirror"])
         self.assertTrue(payload["voxcpm_auto_start"])
+        self.assertEqual(payload["voxcpm_voice_prompt"], "A calm English teacher voice.")
+        self.assertEqual(payload["voxcpm_stream_prebuffer_seconds"], 0.65)
 
     def test_persists_pretty_utf8_json(self) -> None:
         with TemporaryDirectory() as tmp_dir:

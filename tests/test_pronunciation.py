@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from app.models import PronunciationContentMode, WordEntry
-from app.pronunciation import pronunciation_text
+from app.pronunciation import pronunciation_text, voxcpm_pronunciation_text
 
 
 class PronunciationTextTests(unittest.TestCase):
@@ -33,6 +33,30 @@ class PronunciationTextTests(unittest.TestCase):
         self.assertEqual(
             pronunciation_text(entry, PronunciationContentMode.WORD_AND_EXAMPLE),
             "focus",
+        )
+
+    def test_voxcpm_word_and_example_quotes_word_and_applies_voice_prompt(self) -> None:
+        entry = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
+
+        self.assertEqual(
+            voxcpm_pronunciation_text(
+                entry,
+                PronunciationContentMode.WORD_AND_EXAMPLE,
+                voice_prompt="A calm English teacher voice.",
+            ),
+            '(A calm English teacher voice.)"focus". Focus on review.',
+        )
+
+    def test_voxcpm_example_mode_keeps_sentence_unquoted_but_uses_voice_prompt(self) -> None:
+        entry = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
+
+        self.assertEqual(
+            voxcpm_pronunciation_text(
+                entry,
+                PronunciationContentMode.EXAMPLE,
+                voice_prompt="A calm English teacher voice.",
+            ),
+            "(A calm English teacher voice.)Focus on review.",
         )
 
 

@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 from PySide6.QtCore import QLocale
 
 from app.models import Accent, TtsInitializationState, TtsProvider
-from app.tts import PronunciationService, VoxCpmHttpProvider
+from app.tts import PronunciationService, StreamingPcmPlayer, VoxCpmHttpProvider
 
 
 class _FakeResponse:
@@ -146,6 +146,87 @@ class VoxCpmHttpProviderTests(unittest.TestCase):
         self.assertFalse(result)
         self.assertIn("service down", provider.last_error or "")
         player.play.assert_not_called()
+
+
+class StreamingPcmPlayerTests(unittest.TestCase):
+    def test_prebuffers_pcm_before_starting_audio_sink(self) -> None:
+        events: list[str] = []
+
+        class FakeAudioFormat:
+            class SampleFormat:
+                Int16 = object()
+
+            def setSampleRate(self, sample_rate: int) -> None:
+                self.sample_rate = sample_rate
+
+            def setChannelCount(self, channels: int) -> None:
+                self.channels = channels
+
+            def setSampleFormat(self, sample_format: object) -> None:
+                self.sample_format = sample_format
+
+        class FakeDevice:
+            def write(self, chunk: bytes) -> int:
+                events.append(f"write:{chunk.decode('ascii')}")
+                return len(chunk)
+
+        class FakeSink:
+            def __init__(self, *_args: object) -> None:
+                self.device = FakeDevice()
+
+            def setBufferSize(self, _size: int) -> None:
+                return None
+
+            def start(self) -> FakeDevice:
+                events.append("start")
+                return self.device
+
+            def stop(self) -> None:
+                return None
+
+        def chunks() -> object:
+            for chunk in (b"aa", b"bb", b"cc"):
+                events.append(f"yield:{chunk.decode('ascii')}")
+                yield chunk
+
+        player = StreamingPcmPlayer(prebuffer_seconds=0.5)
+        with (
+            patch("app.tts.QAudioFormat", FakeAudioFormat),
+            patch("app.tts.QAudioSink", FakeSink),
+        ):
+            result = player.play_pcm_chunks(
+                chunks(),
+                sample_rate=4,
+                channels=1,
+                sample_format="s16le",
+            )
+
+        self.assertTrue(result)
+        self.assertEqual(events[:3], ["yield:aa", "yield:bb", "start"])
+        self.assertIn("write:aa", events)
+        self.assertIn("write:bb", events)
+
+    def test_pronunciation_service_passes_voxcpm_prebuffer_setting_to_stream_player(self) -> None:
+        created: list[float] = []
+
+        class FakeStreamingPcmPlayer:
+            def __init__(self, *, prebuffer_seconds: float) -> None:
+                created.append(prebuffer_seconds)
+
+        with (
+            TemporaryDirectory() as tmp_dir,
+            patch("app.tts.StreamingPcmPlayer", FakeStreamingPcmPlayer),
+        ):
+            service = PronunciationService(
+                provider=TtsProvider.VOXCPM_LOCAL,
+                endpoint="http://127.0.0.1:8808",
+                timeout_seconds=5,
+                cache_dir=Path(tmp_dir),
+                stream_prebuffer_seconds=0.8,
+            )
+
+        self.assertEqual(service.provider, TtsProvider.VOXCPM_LOCAL)
+        self.assertEqual(created, [0.8])
 
     def test_rejects_non_local_endpoint_without_http_request(self) -> None:
         player = Mock()

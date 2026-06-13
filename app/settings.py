@@ -30,7 +30,9 @@ from .models import (
     DEFAULT_VOXCPM_ENDPOINT,
     DEFAULT_VOXCPM_INSTALL_ROOT,
     DEFAULT_VOXCPM_MODEL_CACHE_ROOT,
+    DEFAULT_VOXCPM_STREAM_PREBUFFER_SECONDS,
     DEFAULT_VOXCPM_TIMEOUT_SECONDS,
+    DEFAULT_VOXCPM_VOICE_PROMPT,
     DisplayMode,
     LearningState,
     OverlayPosition,
@@ -194,6 +196,14 @@ def normalize_settings(payload: Any) -> AppSettings:
             data.get("voxcpm_auto_start"),
             defaults.voxcpm_auto_start,
         ),
+        voxcpm_voice_prompt=_normalize_voice_prompt(
+            data.get("voxcpm_voice_prompt"),
+            DEFAULT_VOXCPM_VOICE_PROMPT,
+        ),
+        voxcpm_stream_prebuffer_seconds=_normalize_prebuffer_seconds(
+            data.get("voxcpm_stream_prebuffer_seconds"),
+            DEFAULT_VOXCPM_STREAM_PREBUFFER_SECONDS,
+        ),
         pronounce_hotkey=_normalize_hotkey(
             data.get("pronounce_hotkey"),
             DEFAULT_PRONOUNCE_HOTKEY,
@@ -282,6 +292,8 @@ def settings_to_dict(settings: AppSettings) -> dict[str, Any]:
         "voxcpm_model_cache_root": settings.voxcpm_model_cache_root,
         "voxcpm_use_model_mirror": settings.voxcpm_use_model_mirror,
         "voxcpm_auto_start": settings.voxcpm_auto_start,
+        "voxcpm_voice_prompt": settings.voxcpm_voice_prompt,
+        "voxcpm_stream_prebuffer_seconds": settings.voxcpm_stream_prebuffer_seconds,
         "pronounce_hotkey": settings.pronounce_hotkey,
         "toggle_detail_hotkey": settings.toggle_detail_hotkey,
         "trigger_now_hotkey": settings.trigger_now_hotkey,
@@ -401,6 +413,14 @@ def _normalize_timeout_seconds(value: Any, default: int) -> int:
     return min(max(timeout, 1), 120)
 
 
+def _normalize_prebuffer_seconds(value: Any, default: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return default
+    if value < 0:
+        return default
+    return round(min(float(value), 2.0), 2)
+
+
 def _normalize_path_text(value: Any, default: str) -> str:
     normalized = _normalize_optional_text(value)
     if normalized is None:
@@ -409,6 +429,17 @@ def _normalize_path_text(value: Any, default: str) -> str:
     if not expanded.strip():
         return default
     return str(Path(expanded))
+
+
+def _normalize_voice_prompt(value: Any, default: str, max_length: int = 300) -> str:
+    normalized = _normalize_optional_text(value)
+    if normalized is None:
+        return default
+    one_line = " ".join(normalized.split())
+    stripped = one_line.strip().strip("()").strip()
+    if not stripped:
+        return default
+    return stripped[:max_length].strip()
 
 
 def _normalize_non_negative_int(value: Any, default: int) -> int:

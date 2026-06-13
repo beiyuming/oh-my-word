@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -169,10 +170,12 @@ class SettingsDialog(QDialog):
         self._tts_provider = QComboBox(self)
         self._voxcpm_endpoint = QLineEdit(self)
         self._voxcpm_timeout = QSpinBox(self)
+        self._voxcpm_stream_prebuffer = QDoubleSpinBox(self)
         self._voxcpm_install_root = QLineEdit(self)
         self._voxcpm_model_cache_root = QLineEdit(self)
         self._voxcpm_use_model_mirror = QCheckBox(self)
         self._voxcpm_auto_start = QCheckBox(self)
+        self._voxcpm_voice_prompt = QLineEdit(self)
         self._voxcpm_install_status = QLabel("未检测", self)
         self._voxcpm_service_status = QLabel("未检测", self)
         self._voxcpm_message = QLabel("", self)
@@ -249,10 +252,12 @@ class SettingsDialog(QDialog):
         self._set_enum_value(self._tts_provider, settings.tts_provider)
         self._voxcpm_endpoint.setText(settings.voxcpm_endpoint)
         self._voxcpm_timeout.setValue(settings.voxcpm_timeout_seconds)
+        self._voxcpm_stream_prebuffer.setValue(settings.voxcpm_stream_prebuffer_seconds)
         self._voxcpm_install_root.setText(settings.voxcpm_install_root)
         self._voxcpm_model_cache_root.setText(settings.voxcpm_model_cache_root)
         self._voxcpm_use_model_mirror.setChecked(settings.voxcpm_use_model_mirror)
         self._voxcpm_auto_start.setChecked(settings.voxcpm_auto_start)
+        self._voxcpm_voice_prompt.setText(settings.voxcpm_voice_prompt)
         self._min_delay.setValue(settings.min_delay_minutes)
         self._max_delay.setValue(settings.max_delay_minutes)
         self._activity_threshold.setValue(settings.activity_threshold_per_minute)
@@ -294,11 +299,13 @@ class SettingsDialog(QDialog):
             tts_provider=self._current_enum_value(self._tts_provider, TtsProvider, AppSettings().tts_provider),
             voxcpm_endpoint=self._voxcpm_endpoint.text().strip() or AppSettings().voxcpm_endpoint,
             voxcpm_timeout_seconds=self._voxcpm_timeout.value(),
+            voxcpm_stream_prebuffer_seconds=self._voxcpm_stream_prebuffer.value(),
             voxcpm_install_root=self._voxcpm_install_root.text().strip() or AppSettings().voxcpm_install_root,
             voxcpm_model_cache_root=self._voxcpm_model_cache_root.text().strip()
             or AppSettings().voxcpm_model_cache_root,
             voxcpm_use_model_mirror=self._voxcpm_use_model_mirror.isChecked(),
             voxcpm_auto_start=self._voxcpm_auto_start.isChecked(),
+            voxcpm_voice_prompt=self._voxcpm_voice_prompt.text().strip(),
             pronounce_hotkey=self._pronounce_hotkey.sequence() or AppSettings().pronounce_hotkey,
             toggle_detail_hotkey=self._toggle_detail_hotkey.sequence() or AppSettings().toggle_detail_hotkey,
             trigger_now_hotkey=self._trigger_now_hotkey.sequence() or AppSettings().trigger_now_hotkey,
@@ -350,8 +357,13 @@ class SettingsDialog(QDialog):
         self._snooze_minutes.setSuffix(" 分钟")
 
         self._voxcpm_endpoint.setPlaceholderText(AppSettings().voxcpm_endpoint)
+        self._voxcpm_voice_prompt.setPlaceholderText("A calm English teacher voice, clear pronunciation.")
         self._voxcpm_timeout.setRange(1, 120)
         self._voxcpm_timeout.setSuffix(" 秒")
+        self._voxcpm_stream_prebuffer.setRange(0.0, 2.0)
+        self._voxcpm_stream_prebuffer.setDecimals(2)
+        self._voxcpm_stream_prebuffer.setSingleStep(0.05)
+        self._voxcpm_stream_prebuffer.setSuffix(" 秒")
 
         self._voxcpm_message.setWordWrap(True)
         self._tabs.addTab(self._build_learning_tab(), "学习")
@@ -415,6 +427,7 @@ class SettingsDialog(QDialog):
         settings_form.setSpacing(10)
         settings_form.addRow("端点地址", self._voxcpm_endpoint)
         settings_form.addRow("请求超时", self._voxcpm_timeout)
+        settings_form.addRow("流式预缓冲", self._voxcpm_stream_prebuffer)
         settings_form.addRow("安装目录", self._path_row(self._voxcpm_install_root, self._voxcpm_install_browse_button))
         settings_form.addRow(
             "模型目录",
@@ -422,6 +435,7 @@ class SettingsDialog(QDialog):
         )
         settings_form.addRow(self._voxcpm_use_model_mirror)
         settings_form.addRow(self._voxcpm_auto_start)
+        settings_form.addRow("语气提示词", self._voxcpm_voice_prompt)
         service_layout.addLayout(settings_form)
 
         action_row = QHBoxLayout()

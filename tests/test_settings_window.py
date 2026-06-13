@@ -28,6 +28,8 @@ class SettingsDialogTtsTests(unittest.TestCase):
                 voxcpm_model_cache_root="E:\\Models\\VoxCPM2",
                 voxcpm_use_model_mirror=False,
                 voxcpm_auto_start=True,
+                voxcpm_voice_prompt="A calm English teacher voice.",
+                voxcpm_stream_prebuffer_seconds=0.65,
             )
         )
         self.addCleanup(dialog.close)
@@ -42,6 +44,8 @@ class SettingsDialogTtsTests(unittest.TestCase):
         self.assertEqual(settings.voxcpm_model_cache_root, "E:\\Models\\VoxCPM2")
         self.assertFalse(settings.voxcpm_use_model_mirror)
         self.assertTrue(settings.voxcpm_auto_start)
+        self.assertEqual(settings.voxcpm_voice_prompt, "A calm English teacher voice.")
+        self.assertEqual(settings.voxcpm_stream_prebuffer_seconds, 0.65)
 
     def test_settings_dialog_has_categorized_tabs(self) -> None:
         dialog = SettingsDialog(AppSettings())
@@ -57,6 +61,7 @@ class SettingsDialogTtsTests(unittest.TestCase):
 
         self.assertIn(f"v{APP_VERSION}", dialog._version_label.text())
         self.assertIn("更新日志", dialog._changelog_view.toPlainText())
+        self.assertIn("v0.1.5", dialog._changelog_view.toPlainText())
         self.assertIn("v0.1.3", dialog._changelog_view.toPlainText())
         self.assertIn("v0.1.2", dialog._changelog_view.toPlainText())
         self.assertIn("v0.1.1", dialog._changelog_view.toPlainText())
