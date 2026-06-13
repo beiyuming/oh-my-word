@@ -5,8 +5,9 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
+from unittest.mock import patch
 
-from app.voxcpm_service import VoxCpmServiceManager
+from app.voxcpm_service import EndpointProcess, VoxCpmServiceManager
 
 
 class _FakeProcess:
@@ -133,6 +134,83 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
 
             self.assertTrue(process.terminated)
             self.assertFalse(manager.status().running)
+
+    def test_stop_service_stops_matching_endpoint_process_started_by_previous_app_session(self) -> None:
+        killed: list[int] = []
+
+        with TemporaryDirectory() as tmp_dir:
+            manager = VoxCpmServiceManager(
+                install_root=Path(tmp_dir) / "voxcpm",
+                model_cache_root=Path(tmp_dir) / "models",
+                script_root=Path(tmp_dir) / "scripts",
+                endpoint="http://127.0.0.1:8808",
+                endpoint_process_finder=lambda _port: [
+                    EndpointProcess(
+                        pid=1234,
+                        command_line="python.exe -m uvicorn service.server:app --host 127.0.0.1 --port 8808",
+                    )
+                ],
+                process_terminator=lambda pid: killed.append(pid),
+            )
+
+            self.assertTrue(manager.stop_service())
+
+            self.assertEqual(killed, [1234])
+            self.assertFalse(manager.status().running)
+            self.assertIn("已停止", manager.status().message)
+
+    def test_stop_service_does_not_kill_unrelated_process_on_same_port(self) -> None:
+        killed: list[int] = []
+
+        with TemporaryDirectory() as tmp_dir:
+            manager = VoxCpmServiceManager(
+                install_root=Path(tmp_dir) / "voxcpm",
+                model_cache_root=Path(tmp_dir) / "models",
+                script_root=Path(tmp_dir) / "scripts",
+                endpoint="http://127.0.0.1:8808",
+                endpoint_process_finder=lambda _port: [
+                    EndpointProcess(pid=5678, command_line="python.exe -m http.server 8808")
+                ],
+                process_terminator=lambda pid: killed.append(pid),
+            )
+
+            self.assertFalse(manager.stop_service())
+
+            self.assertEqual(killed, [])
+
+    def test_parses_netstat_fallback_when_get_net_tcp_connection_returns_no_processes(self) -> None:
+        commands: list[list[str]] = []
+
+        def fake_run(args: list[str], **_: Any) -> Any:
+            commands.append(args)
+            if "Get-NetTCPConnection" in args[-1]:
+                return type("Result", (), {"stdout": ""})()
+            if "netstat" in args[-1]:
+                return type(
+                    "Result",
+                    (),
+                    {"stdout": "  TCP    127.0.0.1:8808         0.0.0.0:0              LISTENING       75372\n"},
+                )()
+            return type(
+                "Result",
+                (),
+                {"stdout": "75372\tpython.exe -m uvicorn service.server:app --host 127.0.0.1 --port 8808\n"},
+            )()
+
+        with (
+            TemporaryDirectory() as tmp_dir,
+            patch("app.voxcpm_service.subprocess.run", side_effect=fake_run),
+        ):
+            manager = VoxCpmServiceManager(
+                install_root=Path(tmp_dir) / "voxcpm",
+                model_cache_root=Path(tmp_dir) / "models",
+                script_root=Path(tmp_dir) / "scripts",
+            )
+
+            processes = manager._find_endpoint_processes(8808)
+
+        self.assertEqual(processes, [EndpointProcess(75372, "python.exe -m uvicorn service.server:app --host 127.0.0.1 --port 8808")])
+        self.assertEqual(len(commands), 3)
 
     def test_health_check_reads_local_endpoint_status(self) -> None:
         with TemporaryDirectory() as tmp_dir:

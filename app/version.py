@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-APP_VERSION = "0.1.2"
+APP_VERSION = "0.1.3"
 
 
 @dataclass(slots=True, frozen=True)
@@ -14,6 +14,14 @@ class ChangelogEntry:
 
 
 CHANGELOG: tuple[ChangelogEntry, ...] = (
+    ChangelogEntry(
+        version="0.1.3",
+        date="2026-06-13",
+        changes=(
+            "修复设置页停止 VoxCPM 服务后，旧服务仍占用端口导致检测又显示运行中的问题。",
+            "停止服务现在会识别并停止同一 endpoint 上的 VoxCPM uvicorn 旧服务进程，同时避免误杀无关进程。",
+        ),
+    ),
     ChangelogEntry(
         version="0.1.2",
         date="2026-06-13",

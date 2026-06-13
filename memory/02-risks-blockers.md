@@ -52,7 +52,7 @@
 
 - 风险：2026-06-13 检查到本机 8808 上运行的是 `python.exe -m uvicorn service.server:app`，`/health` 和 `/synthesize` 可用，但 `/synthesize_stream` 返回 404。
 - 影响：即使主程序已打包支持流式，客户端也会回退完整 WAV，用户仍会感到每次朗读卡几秒；短词吞音问题也不会因主程序重装自动消失。v0.1.2 已加入 VoxCPM badcase 参数和首尾静音保护，但这些改动必须进入已安装的 service 才会生效。
-- 处理：需要停止旧 service，并通过 v0.1.2 或后续版本的设置页“后台安装 / 更新”或安装器 VoxCPM 选项刷新 companion service。刷新后必须重新验证 `/synthesize_stream` 返回 200，再做人工听音。
+- 处理：v0.1.3 已让设置页停止服务可以识别并停止同一 local endpoint 上命令行为 `uvicorn service.server:app` 的旧 VoxCPM 进程，同时避免误杀无关端口进程。之后仍需要通过设置页“后台安装 / 更新”或安装器 VoxCPM 选项刷新 companion service。刷新后必须重新验证 `/synthesize_stream` 返回 200，再做人工听音。
 
 ## 普通不确定性
 

@@ -116,8 +116,8 @@
 - 发布打包例外：每次完成“更新并重新打包安装包”后，必须在验证通过后执行一次 Git 提交、推送到 GitHub、创建同版本 tag，并创建 GitHub Release。
 - 发布提交前必须先检查 `git status --short` 和本次 diff，只暂存本次发布相关的源码、测试、文档、版本号、更新日志和打包脚本。不得用 `git add .` 盲目暂存已有 dirty 工作。
 - 发布提交默认不包含 `dist/` 安装包、portable payload、`storage/`、`.venv`、Torch/CUDA wheel、VoxCPM 模型权重、Hugging Face/ModelScope 缓存、`.codegraph/` 或其它生成/机器相关目录；除非用户明确要求跟踪某个发布产物。
-- 发布提交信息应包含版本号，例如 `release: v0.1.2`。tag 必须使用同一版本号，例如 `v0.1.2`。
-- 发布安装包不通过普通 Git 跟踪 `dist/` 二进制产物；每次版本发布在 Git 提交、branch push 和 tag push 成功后，还必须创建或更新同版本 GitHub Release，并上传带版本号的安装包附件，例如 `oh-my-word-setup-v0.1.2.exe`。
+- 发布提交信息应包含版本号，例如 `release: v0.1.3`。tag 必须使用同一版本号，例如 `v0.1.3`。
+- 发布安装包不通过普通 Git 跟踪 `dist/` 二进制产物；每次版本发布在 Git 提交、branch push 和 tag push 成功后，还必须创建或更新同版本 GitHub Release，并上传带版本号的安装包附件，例如 `oh-my-word-setup-v0.1.3.exe`。
 - 如果 GitHub Release 创建/上传因 `gh` 缺失、未登录、token 缺失、网络或权限失败而无法完成，必须明确报告失败原因、已推送的 commit/branch/tag 状态、安装包本地路径，并给出可手动执行的 `gh release create` 或 `gh release upload --clobber` 命令。
 - 除非用户明确要求，不要改写历史。
 - 不要回滚或删除用户工作。遇到无关 dirty 文件时保持原样。

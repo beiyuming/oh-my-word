@@ -57,6 +57,7 @@ class SettingsDialogTtsTests(unittest.TestCase):
 
         self.assertIn(f"v{APP_VERSION}", dialog._version_label.text())
         self.assertIn("更新日志", dialog._changelog_view.toPlainText())
+        self.assertIn("v0.1.3", dialog._changelog_view.toPlainText())
         self.assertIn("v0.1.2", dialog._changelog_view.toPlainText())
         self.assertIn("v0.1.1", dialog._changelog_view.toPlainText())
 

@@ -7,6 +7,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, IO
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from PySide6.QtCore import QObject, Signal
@@ -14,6 +15,14 @@ from PySide6.QtCore import QObject, Signal
 
 ProcessFactory = Callable[..., Any]
 UrlopenFunc = Callable[..., Any]
+EndpointProcessFinder = Callable[[int], Sequence["EndpointProcess"]]
+ProcessTerminator = Callable[[int], None]
+
+
+@dataclass(slots=True, frozen=True)
+class EndpointProcess:
+    pid: int
+    command_line: str
 
 
 @dataclass(slots=True, frozen=True)
@@ -38,6 +47,8 @@ class VoxCpmServiceManager(QObject):
         use_model_mirror: bool = True,
         process_factory: ProcessFactory | None = None,
         urlopen_func: UrlopenFunc | None = None,
+        endpoint_process_finder: EndpointProcessFinder | None = None,
+        process_terminator: ProcessTerminator | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
@@ -48,6 +59,8 @@ class VoxCpmServiceManager(QObject):
         self._use_model_mirror = use_model_mirror
         self._process_factory = process_factory or subprocess.Popen
         self._urlopen = urlopen_func or urlopen
+        self._endpoint_process_finder = endpoint_process_finder or self._find_endpoint_processes
+        self._process_terminator = process_terminator or self._terminate_process_tree
         self._install_process: Any | None = None
         self._service_process: Any | None = None
         self._install_log_handle: IO[str] | None = None
@@ -161,25 +174,19 @@ class VoxCpmServiceManager(QObject):
         return True
 
     def stop_service(self) -> bool:
-        if self._service_process is None or self._service_process.poll() is not None:
+        stopped = False
+        if self._service_process is not None and self._service_process.poll() is None:
+            self._terminate_tracked_process()
+            stopped = True
+
+        stopped_external = self._stop_matching_endpoint_processes()
+        stopped = stopped or stopped_external
+        if not stopped:
             self._health_running = False
-            self._message = "没有由应用启动的 VoxCPM 服务进程。"
+            self._message = "没有由应用启动或可识别的 VoxCPM 服务进程。"
             self._emit_status()
             return False
 
-        if os.name == "nt" and getattr(self._service_process, "pid", None):
-            subprocess.run(
-                ["taskkill", "/PID", str(self._service_process.pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-        else:
-            self._service_process.terminate()
-            try:
-                self._service_process.wait(timeout=5)
-            except Exception:
-                self._service_process.kill()
         self._health_running = False
         self._message = "VoxCPM 本地服务已停止。"
         self._emit_status()
@@ -210,6 +217,133 @@ class VoxCpmServiceManager(QObject):
         if hasattr(subprocess, "CREATE_NO_WINDOW"):
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         return self._process_factory(list(args), **kwargs)
+
+    def _terminate_tracked_process(self) -> None:
+        assert self._service_process is not None
+        if os.name == "nt" and getattr(self._service_process, "pid", None):
+            self._process_terminator(int(self._service_process.pid))
+        else:
+            self._service_process.terminate()
+            try:
+                self._service_process.wait(timeout=5)
+            except Exception:
+                self._service_process.kill()
+
+    def _stop_matching_endpoint_processes(self) -> bool:
+        port = self._endpoint_port()
+        if port is None:
+            return False
+        stopped = False
+        for process in self._endpoint_process_finder(port):
+            if not self._is_voxcpm_service_process(process):
+                continue
+            self._process_terminator(process.pid)
+            stopped = True
+        return stopped
+
+    def _endpoint_port(self) -> int | None:
+        parsed = urlparse(self._endpoint)
+        hostname = (parsed.hostname or "").lower()
+        if parsed.scheme != "http" or hostname not in {"127.0.0.1", "localhost", "::1"}:
+            return None
+        return parsed.port
+
+    def _is_voxcpm_service_process(self, process: EndpointProcess) -> bool:
+        command_line = process.command_line.lower()
+        return "uvicorn" in command_line and "service.server:app" in command_line
+
+    def _find_endpoint_processes(self, port: int) -> Sequence[EndpointProcess]:
+        if os.name != "nt":
+            return ()
+        command = (
+            "$ErrorActionPreference='SilentlyContinue'; "
+            f"$pids = Get-NetTCPConnection -LocalPort {port} -State Listen | "
+            "Select-Object -ExpandProperty OwningProcess -Unique; "
+            "foreach ($pidValue in $pids) { "
+            "$process = Get-CimInstance Win32_Process -Filter \"ProcessId=$pidValue\"; "
+            "if ($process) { \"$($process.ProcessId)`t$($process.CommandLine)\" } "
+            "}"
+        )
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        processes = self._parse_endpoint_process_rows(result.stdout)
+        if processes:
+            return processes
+
+        pids = self._find_endpoint_pids_with_netstat(port)
+        return self._find_processes_by_pids(pids)
+
+    def _find_endpoint_pids_with_netstat(self, port: int) -> Sequence[int]:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "netstat -ano -p tcp"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        pids: list[int] = []
+        port_marker = f":{port}"
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) < 5 or parts[0].upper() != "TCP":
+                continue
+            if parts[1].endswith(port_marker) and parts[3].upper() == "LISTENING":
+                try:
+                    pids.append(int(parts[4]))
+                except ValueError:
+                    continue
+        return tuple(dict.fromkeys(pids))
+
+    def _find_processes_by_pids(self, pids: Sequence[int]) -> Sequence[EndpointProcess]:
+        if not pids:
+            return ()
+        pid_list = ", ".join(str(pid) for pid in pids)
+        command = (
+            "$ErrorActionPreference='SilentlyContinue'; "
+            f"foreach ($pidValue in @({pid_list})) {{ "
+            "$process = Get-CimInstance Win32_Process -Filter \"ProcessId=$pidValue\"; "
+            "if ($process) { \"$($process.ProcessId)`t$($process.CommandLine)\" } "
+            "}"
+        )
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        return self._parse_endpoint_process_rows(result.stdout)
+
+    @staticmethod
+    def _parse_endpoint_process_rows(output: str) -> list[EndpointProcess]:
+        processes: list[EndpointProcess] = []
+        for line in output.splitlines():
+            pid_text, separator, command_line = line.partition("\t")
+            if not separator:
+                continue
+            try:
+                pid = int(pid_text)
+            except ValueError:
+                continue
+            processes.append(EndpointProcess(pid=pid, command_line=command_line))
+        return processes
+
+    @staticmethod
+    def _terminate_process_tree(pid: int) -> None:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            return
+        os.kill(pid, 15)
 
     def _python_executable(self) -> Path:
         return self._install_root / ".venv" / "Scripts" / "python.exe"

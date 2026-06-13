@@ -58,7 +58,7 @@ VoxCPM service 调用 `generate()` 和 `generate_streaming()` 时必须显式启
 
 完整 WAV fallback 成功时播放返回的 WAV bytes。运行期音频缓存应使用有限文件，例如 `storage/tts_cache/voxcpm-0.wav` 到 `voxcpm-3.wav` 的轮换，不要无界缓存每次生成结果。连续朗读时应先停止旧播放，再写入下一个轮换文件并播放，避免 QtMultimedia 对同一路径 source 复用导致偶发无声。
 
-VoxCPM service lifecycle 由 controller 和 `app/voxcpm_service.py` 管理，不属于 `app/tts.py` 的职责。设置页可以后台安装/更新、启动、停止、检测和打开日志；这些操作不能阻塞主 UI。`voxcpm_auto_start` 只表示“使用时自动启动”：当用户已选择 `voxcpm_local`、已安装本地服务且打开该开关时，朗读触发前可以启动已安装的本地服务。若未安装，controller 必须提示用户去设置页后台安装，不静默下载数 GB 模型。应用启动时默认不启动 VoxCPM，避免无意占用 GPU/内存。
+VoxCPM service lifecycle 由 controller 和 `app/voxcpm_service.py` 管理，不属于 `app/tts.py` 的职责。设置页可以后台安装/更新、启动、停止、检测和打开日志；这些操作不能阻塞主 UI。停止服务必须停止本应用当前跟踪的 service process；如果服务是前一次应用会话或安装脚本启动的旧进程，则可以停止同一 endpoint 上命令行可识别为 `uvicorn service.server:app` 的本地 VoxCPM 进程，但不得误杀无关端口进程。`voxcpm_auto_start` 只表示“使用时自动启动”：当用户已选择 `voxcpm_local`、已安装本地服务且打开该开关时，朗读触发前可以启动已安装的本地服务。若未安装，controller 必须提示用户去设置页后台安装，不静默下载数 GB 模型。应用启动时默认不启动 VoxCPM，避免无意占用 GPU/内存。
 
 `system_qt` 在 `warm_up()` 前必须保持 `not_initialized`；warm_up 失败后进入 `unavailable` 并记录错误。`speak()` 在未就绪时必须返回 `False`，controller 不应等待初始化完成再继续 UI 交互。
 
