@@ -57,6 +57,7 @@ DEFAULT_VOXCPM_STREAM_PREBUFFER_SECONDS = 0.35
 DEFAULT_VOXCPM_INSTALL_ROOT = str(
     Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
     / "OhMyWord"
+    / "tts"
     / "voxcpm"
 )
 DEFAULT_VOXCPM_MODEL_CACHE_ROOT = str(Path(DEFAULT_VOXCPM_INSTALL_ROOT) / "models")

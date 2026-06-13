@@ -3,13 +3,16 @@ from __future__ import annotations
 from app.version import APP_VERSION, CHANGELOG, formatted_changelog
 
 
-def test_current_version_is_0_1_5() -> None:
-    assert APP_VERSION == "0.1.5"
+def test_current_version_is_0_1_6() -> None:
+    assert APP_VERSION == "0.1.6"
 
 
 def test_changelog_mentions_versioned_installer_and_streaming_service_update() -> None:
     text = formatted_changelog()
 
+    assert "v0.1.6" in text
+    assert "tts\\voxcpm" in text
+    assert "service-only" in text
     assert "v0.1.5" in text
     assert "流式预缓冲" in text
     assert "卡顿" in text
@@ -27,4 +30,4 @@ def test_changelog_mentions_versioned_installer_and_streaming_service_update() -
     assert "安装包文件名带版本号" in text
     assert "VoxCPM" in text
     assert "流式" in text
-    assert CHANGELOG[0].version == "0.1.5"
+    assert CHANGELOG[0].version == "0.1.6"

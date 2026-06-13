@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import os
 import random
 import sys
 from collections import deque
@@ -21,6 +22,8 @@ from .hotkeys import GlobalHotkeyService
 from .models import (
     AppSettings,
     DEFAULT_RECENT_WORDS_LIMIT,
+    DEFAULT_VOXCPM_INSTALL_ROOT,
+    DEFAULT_VOXCPM_MODEL_CACHE_ROOT,
     DisplayMode,
     LearningState,
     TtsInitializationState,
@@ -293,7 +296,7 @@ class AppController(QObject):
         self.study_store.import_legacy_learning_state(self._paths.learning_state_path)
         self._activity_monitor.start()
 
-        self.settings = self.settings_store.load()
+        self.settings = self._settings_with_runtime_voxcpm_defaults(self.settings_store.load())
         self.learning_state = self.learning_state_store.load()
         self.voxcpm_service = self._create_voxcpm_service_manager()
         self.voxcpm_service.status_changed.connect(self._on_voxcpm_status_changed)
@@ -615,6 +618,35 @@ class AppController(QObject):
             endpoint=self.settings.voxcpm_endpoint,
             use_model_mirror=self.settings.voxcpm_use_model_mirror,
             script_root=self._paths.data_dir.parent / "tools" / "voxcpm_service",
+        )
+
+    def _settings_with_runtime_voxcpm_defaults(self, settings: AppSettings) -> AppSettings:
+        runtime_install_root = self._paths.root_dir / "tts" / "voxcpm"
+        runtime_model_cache_root = runtime_install_root / "models"
+        old_install_root = _legacy_voxcpm_install_root()
+        old_model_cache_root = old_install_root / "models"
+
+        install_root = Path(settings.voxcpm_install_root)
+        model_cache_root = Path(settings.voxcpm_model_cache_root)
+        should_use_runtime_install_root = install_root in {
+            Path(DEFAULT_VOXCPM_INSTALL_ROOT),
+            old_install_root,
+        }
+        should_use_runtime_model_cache_root = model_cache_root in {
+            Path(DEFAULT_VOXCPM_MODEL_CACHE_ROOT),
+            old_model_cache_root,
+            Path(settings.voxcpm_install_root) / "models",
+        }
+
+        if not should_use_runtime_install_root and not should_use_runtime_model_cache_root:
+            return settings
+
+        return replace(
+            settings,
+            voxcpm_install_root=str(runtime_install_root) if should_use_runtime_install_root else settings.voxcpm_install_root,
+            voxcpm_model_cache_root=str(runtime_model_cache_root)
+            if should_use_runtime_model_cache_root
+            else settings.voxcpm_model_cache_root,
         )
 
     def _schedule_tts_warm_up(self) -> None:
@@ -1022,3 +1054,7 @@ class AppController(QObject):
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _legacy_voxcpm_install_root() -> Path:
+    return Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))) / "OhMyWord" / "voxcpm"

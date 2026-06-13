@@ -35,7 +35,7 @@ def test_voxcpm_server_exposes_local_health_and_synthesize_routes() -> None:
 def test_voxcpm_local_installer_script_is_user_scoped_and_resumable() -> None:
     script = (SERVICE_DIR / "install_local.ps1").read_text(encoding="utf-8")
 
-    assert "$env:LOCALAPPDATA\\OhMyWord\\voxcpm" in script
+    assert "$env:LOCALAPPDATA\\OhMyWord\\tts\\voxcpm" in script
     assert "Start-Transcript" in script
     assert "requirements.txt" in script
     assert "VoxCPM.from_pretrained" in script
@@ -46,7 +46,7 @@ def test_voxcpm_local_installer_uses_user_selected_model_cache() -> None:
     script = (SERVICE_DIR / "install_local.ps1").read_text(encoding="utf-8")
 
     assert "ModelCacheRoot" in script
-    assert "$env:LOCALAPPDATA\\OhMyWord\\voxcpm\\models" in script
+    assert "$env:LOCALAPPDATA\\OhMyWord\\tts\\voxcpm\\models" in script
     assert "$modelCachePath" in script
     assert "$env:HF_HOME = $modelCachePath" in script
     assert "$env:HF_HUB_CACHE = Join-Path $modelCachePath \"hub\"" in script
@@ -281,6 +281,17 @@ def test_windows_installer_passes_selected_voxcpm_model_cache() -> None:
     assert " -InstallRoot '\" +" not in installer_script
 
 
+def test_windows_installer_defaults_voxcpm_under_selected_app_tts_folder() -> None:
+    installer_script = (ROOT / "build" / "build_installer.ps1").read_text(encoding="utf-8")
+
+    assert 'Path.Combine(defaultInstallRoot, "tts", "voxcpm")' in installer_script
+    assert 'Path.Combine(defaultVoxCpmInstallRoot, "models")' in installer_script
+    assert "UpdateVoxCpmDefaultPathsFromInstallRoot" in installer_script
+    assert "installPathBox.TextChanged" in installer_script
+    assert "voxCpmInstallPathEdited" in installer_script
+    assert "voxCpmModelCachePathEdited" in installer_script
+
+
 def test_windows_installer_defaults_voxcpm_hf_mirror_on_for_model_downloads() -> None:
     installer_script = (ROOT / "build" / "build_installer.ps1").read_text(encoding="utf-8")
 
@@ -381,7 +392,7 @@ def test_stable_docs_describe_voxcpm_provider_contract() -> None:
     assert "使用时自动启动" in readme
     assert "默认关闭" in packaging_spec
     assert "ModelCacheRoot" in packaging_spec
-    assert "%LOCALAPPDATA%\\OhMyWord\\voxcpm\\models" in readme
+    assert "tts\\voxcpm\\models" in readme
     assert "Use model download mirror" in readme
     assert "默认启用" in packaging_spec
     assert "运行中的旧应用" in packaging_spec

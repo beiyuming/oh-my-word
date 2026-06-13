@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-APP_VERSION = "0.1.5"
+APP_VERSION = "0.1.6"
 
 
 @dataclass(slots=True, frozen=True)
@@ -14,6 +14,15 @@ class ChangelogEntry:
 
 
 CHANGELOG: tuple[ChangelogEntry, ...] = (
+    ChangelogEntry(
+        version="0.1.6",
+        date="2026-06-14",
+        changes=(
+            "VoxCPM 默认安装位置调整为主程序目录下的 tts\\voxcpm，模型默认放在 tts\\voxcpm\\models。",
+            "安装器中修改主程序安装目录时，会同步更新未手动改过的 VoxCPM engine 和模型目录。",
+            "保留 VoxCPM 可选安装边界，安装包仍只内置 service-only 文件，不携带模型、venv 或 Torch/CUDA 依赖。",
+        ),
+    ),
     ChangelogEntry(
         version="0.1.5",
         date="2026-06-14",

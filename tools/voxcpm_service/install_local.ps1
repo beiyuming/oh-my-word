@@ -1,6 +1,6 @@
 param(
-    [string]$InstallRoot = "$env:LOCALAPPDATA\OhMyWord\voxcpm",
-    [string]$ModelCacheRoot = "$env:LOCALAPPDATA\OhMyWord\voxcpm\models",
+    [string]$InstallRoot = "$env:LOCALAPPDATA\OhMyWord\tts\voxcpm",
+    [string]$ModelCacheRoot = "$env:LOCALAPPDATA\OhMyWord\tts\voxcpm\models",
     [string]$PythonExe = "py",
     [string]$PythonVersion = "-3.11",
     [string]$Device = "auto",

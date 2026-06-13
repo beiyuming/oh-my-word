@@ -15,6 +15,8 @@ from app.controller import AppController, AppPaths
 from app.fsrs_service import ProjectReviewRating
 from app.models import (
     AppSettings,
+    DEFAULT_VOXCPM_INSTALL_ROOT,
+    DEFAULT_VOXCPM_MODEL_CACHE_ROOT,
     PronunciationContentMode,
     TtsInitializationState,
     TtsProvider,
@@ -450,6 +452,54 @@ class ControllerPopupActionTests(unittest.TestCase):
                 controller._create_tts_service()
 
         self.assertEqual(service_class.call_args.kwargs["stream_prebuffer_seconds"], 0.9)
+
+    def test_runtime_voxcpm_defaults_use_app_tts_directory_when_settings_are_default(self) -> None:
+        controller = AppController(self.app)
+        with TemporaryDirectory() as temp_dir:
+            controller._paths = AppPaths(
+                root_dir=Path(temp_dir) / "Oh My Word",
+                data_dir=Path(temp_dir) / "Oh My Word" / "_internal" / "data",
+                wordbooks_dir=Path(temp_dir) / "Oh My Word" / "_internal" / "data" / "wordbooks",
+                storage_dir=Path(temp_dir) / "Oh My Word" / "storage",
+                settings_path=Path(temp_dir) / "Oh My Word" / "storage" / "settings.json",
+                learning_state_path=Path(temp_dir) / "Oh My Word" / "storage" / "learning_state.json",
+                log_path=Path(temp_dir) / "Oh My Word" / "storage" / "app.log",
+                study_db_path=Path(temp_dir) / "Oh My Word" / "storage" / "oh_my_word.sqlite3",
+            )
+
+            settings = controller._settings_with_runtime_voxcpm_defaults(AppSettings())
+
+        expected_root = Path(temp_dir) / "Oh My Word" / "tts" / "voxcpm"
+        self.assertEqual(settings.voxcpm_install_root, str(expected_root))
+        self.assertEqual(settings.voxcpm_model_cache_root, str(expected_root / "models"))
+
+    def test_runtime_voxcpm_defaults_do_not_override_custom_paths(self) -> None:
+        controller = AppController(self.app)
+        controller._paths = AppPaths.from_root(Path("C:\\Apps\\Oh My Word"))
+
+        settings = controller._settings_with_runtime_voxcpm_defaults(
+            AppSettings(
+                voxcpm_install_root="D:\\TTS\\voxcpm",
+                voxcpm_model_cache_root="E:\\Models\\VoxCPM2",
+            )
+        )
+
+        self.assertEqual(settings.voxcpm_install_root, "D:\\TTS\\voxcpm")
+        self.assertEqual(settings.voxcpm_model_cache_root, "E:\\Models\\VoxCPM2")
+
+    def test_runtime_voxcpm_defaults_migrate_old_default_paths(self) -> None:
+        controller = AppController(self.app)
+        controller._paths = AppPaths.from_root(Path("C:\\Apps\\Oh My Word"))
+
+        settings = controller._settings_with_runtime_voxcpm_defaults(
+            AppSettings(
+                voxcpm_install_root=DEFAULT_VOXCPM_INSTALL_ROOT,
+                voxcpm_model_cache_root=DEFAULT_VOXCPM_MODEL_CACHE_ROOT,
+            )
+        )
+
+        self.assertEqual(settings.voxcpm_install_root, "C:\\Apps\\Oh My Word\\tts\\voxcpm")
+        self.assertEqual(settings.voxcpm_model_cache_root, "C:\\Apps\\Oh My Word\\tts\\voxcpm\\models")
 
     def test_request_fresh_word_uses_study_store_selection(self) -> None:
         controller = AppController(self.app)

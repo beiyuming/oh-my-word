@@ -131,6 +131,9 @@ internal static class Program
         private readonly Button installButton;
         private readonly ProgressBar progressBar;
         private readonly Label statusLabel;
+        private bool updatingVoxCpmDefaults;
+        private bool voxCpmInstallPathEdited;
+        private bool voxCpmModelCachePathEdited;
 
         public InstallerForm()
         {
@@ -145,10 +148,7 @@ internal static class Program
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "Programs",
                 "Oh My Word");
-            var defaultVoxCpmInstallRoot = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "OhMyWord",
-                "voxcpm");
+            var defaultVoxCpmInstallRoot = Path.Combine(defaultInstallRoot, "tts", "voxcpm");
             var defaultVoxCpmModelCacheRoot = Path.Combine(defaultVoxCpmInstallRoot, "models");
 
             var titleLabel = new Label
@@ -187,6 +187,10 @@ internal static class Program
                 Size = new Size(88, 28)
             };
             browseButton.Click += BrowseInstallPath;
+            installPathBox.TextChanged += delegate(object textSender, EventArgs textArgs)
+            {
+                UpdateVoxCpmDefaultPathsFromInstallRoot();
+            };
 
             desktopShortcutBox = new CheckBox
             {
@@ -234,12 +238,26 @@ internal static class Program
                 Location = new Point(38, 226),
                 Size = new Size(402, 24)
             };
+            voxCpmInstallPathBox.TextChanged += delegate(object textSender, EventArgs textArgs)
+            {
+                if (!updatingVoxCpmDefaults)
+                {
+                    voxCpmInstallPathEdited = true;
+                }
+            };
 
             var browseVoxCpmInstallButton = new Button
             {
                 Text = "Browse...",
                 Location = new Point(452, 224),
                 Size = new Size(88, 28)
+            };
+            voxcpmModelCachePathBox.TextChanged += delegate(object textSender, EventArgs textArgs)
+            {
+                if (!updatingVoxCpmDefaults)
+                {
+                    voxCpmModelCachePathEdited = true;
+                }
             };
             browseVoxCpmInstallButton.Click += BrowseVoxCpmInstallPath;
 
@@ -355,6 +373,36 @@ internal static class Program
             }
         }
 
+        private void UpdateVoxCpmDefaultPathsFromInstallRoot()
+        {
+            if (string.IsNullOrWhiteSpace(installPathBox.Text))
+            {
+                return;
+            }
+
+            try
+            {
+                updatingVoxCpmDefaults = true;
+                var installRoot = Path.GetFullPath(Environment.ExpandEnvironmentVariables(installPathBox.Text.Trim()));
+                var defaultVoxCpmInstallRoot = Path.Combine(installRoot, "tts", "voxcpm");
+                if (!voxCpmInstallPathEdited)
+                {
+                    voxCpmInstallPathBox.Text = defaultVoxCpmInstallRoot;
+                }
+                if (!voxCpmModelCachePathEdited)
+                {
+                    voxcpmModelCachePathBox.Text = Path.Combine(defaultVoxCpmInstallRoot, "models");
+                }
+            }
+            catch
+            {
+            }
+            finally
+            {
+                updatingVoxCpmDefaults = false;
+            }
+        }
+
         private void BrowseVoxCpmInstallPath(object sender, EventArgs e)
         {
             using (var dialog = new FolderBrowserDialog())
@@ -364,8 +412,9 @@ internal static class Program
                 dialog.ShowNewFolderButton = true;
                 if (dialog.ShowDialog(this) == DialogResult.OK)
                 {
+                    voxCpmInstallPathEdited = true;
                     voxCpmInstallPathBox.Text = dialog.SelectedPath;
-                    if (string.IsNullOrWhiteSpace(voxcpmModelCachePathBox.Text))
+                    if (!voxCpmModelCachePathEdited)
                     {
                         voxcpmModelCachePathBox.Text = Path.Combine(dialog.SelectedPath, "models");
                     }
@@ -382,6 +431,7 @@ internal static class Program
                 dialog.ShowNewFolderButton = true;
                 if (dialog.ShowDialog(this) == DialogResult.OK)
                 {
+                    voxCpmModelCachePathEdited = true;
                     voxcpmModelCachePathBox.Text = dialog.SelectedPath;
                 }
             }

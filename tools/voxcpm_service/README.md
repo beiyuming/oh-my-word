@@ -14,7 +14,7 @@ py -3.11 -m venv .venv-voxcpm
 The installer-facing setup script accepts a model cache directory:
 
 ```powershell
-.\tools\voxcpm_service\install_local.ps1 -ModelCacheRoot "$env:LOCALAPPDATA\OhMyWord\voxcpm\models"
+.\tools\voxcpm_service\install_local.ps1 -ModelCacheRoot "$env:LOCALAPPDATA\OhMyWord\tts\voxcpm\models"
 ```
 
 That path is used for `HF_HOME` and `HF_HUB_CACHE`, so model weights do not have to use the global Hugging Face cache.
@@ -23,8 +23,8 @@ Use `-UseHfMirror` when direct Hugging Face access is unreliable.
 ## Run
 
 ```powershell
-$env:HF_HOME = "$env:LOCALAPPDATA\OhMyWord\voxcpm\models"
-$env:HF_HUB_CACHE = "$env:LOCALAPPDATA\OhMyWord\voxcpm\models\hub"
+$env:HF_HOME = "$env:LOCALAPPDATA\OhMyWord\tts\voxcpm\models"
+$env:HF_HUB_CACHE = "$env:LOCALAPPDATA\OhMyWord\tts\voxcpm\models\hub"
 $env:VOXCPM_MODEL_ID = "openbmb/VoxCPM2"
 $env:VOXCPM_DEVICE = "auto"
 .\.venv-voxcpm\Scripts\python.exe -m uvicorn tools.voxcpm_service.server:app --host 127.0.0.1 --port 8808
