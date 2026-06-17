@@ -38,6 +38,7 @@ $modelCachePath = [System.IO.Path]::GetFullPath((Normalize-PathArgument $ModelCa
 $modelHubCachePath = Join-Path $modelCachePath "hub"
 $localModelPath = Join-Path $modelCachePath "VoxCPM2-local"
 $venvPath = Join-Path $installPath ".venv"
+$venvPython = Join-Path $venvPath "Scripts\python.exe"
 $logPath = Join-Path $installPath "install.log"
 $serverDir = Join-Path $installPath "service"
 $startScriptPath = Join-Path $installPath "start_service.ps1"
@@ -129,15 +130,61 @@ function Resolve-PythonRuntime {
         @{ FilePath = "python3"; Arguments = @(); Label = "python3" }
     )
 
+    $resolvedCandidates = @()
+    $seenRuntimeKeys = @{}
     foreach ($candidate in $candidates) {
         $resolved = Get-PythonRuntimeCandidate -FilePath $candidate.FilePath -Arguments $candidate.Arguments -Label $candidate.Label
         if ($null -ne $resolved) {
-            Write-Host "Selected Python runtime: $($resolved.Label) ($($resolved.Version))"
-            return $resolved
+            $runtimeKey = "$($resolved.FilePath)|$($resolved.Arguments -join ' ')"
+            if (-not $seenRuntimeKeys.ContainsKey($runtimeKey)) {
+                $seenRuntimeKeys[$runtimeKey] = $true
+                $resolvedCandidates += $resolved
+            }
         }
     }
 
-    throw "No suitable Python runtime found. Install Python 3.11 or newer, or make py/python available."
+    if ($resolvedCandidates.Count -eq 0) {
+        throw "No suitable Python runtime found. Install Python 3.11 or newer, or make py/python available."
+    }
+
+    $selected = $resolvedCandidates[0]
+    Write-Host "Selected Python runtime: $($selected.Label) ($($selected.Version))"
+    return ,$resolvedCandidates
+}
+
+function New-VenvWithFallback {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$PythonRuntimes
+    )
+
+    $failureMessages = New-Object System.Collections.Generic.List[string]
+    foreach ($pythonRuntime in $PythonRuntimes) {
+        try {
+            if (Test-Path -LiteralPath $venvPath) {
+                Remove-Item -LiteralPath $venvPath -Recurse -Force -ErrorAction Stop
+            }
+            Write-Host "Using Python runtime: $($pythonRuntime.Label)"
+            Invoke-Native $pythonRuntime.FilePath @($pythonRuntime.Arguments + @("-m", "venv", $venvPath))
+            return $pythonRuntime
+        }
+        catch {
+            $failureMessage = $_.Exception.Message
+            $failureMessages.Add("$($pythonRuntime.Label): $failureMessage")
+            Write-Host "Failed to create virtual environment with $($pythonRuntime.Label): $failureMessage"
+            if (Test-Path -LiteralPath $venvPath) {
+                try {
+                    Remove-Item -LiteralPath $venvPath -Recurse -Force -ErrorAction Stop
+                }
+                catch {
+                    throw "Failed to remove incomplete virtual environment at $venvPath after $($pythonRuntime.Label) failed: $($_.Exception.Message)"
+                }
+            }
+            Write-Host "Trying next Python runtime candidate"
+        }
+    }
+
+    throw "Unable to create virtual environment with any supported Python runtime. $($failureMessages -join ' | ')"
 }
 
 function Test-NvidiaGpuAvailable {
@@ -304,14 +351,14 @@ try {
     Write-Host "VoxCPM install root: $installPath"
     Write-Host "VoxCPM model cache: $modelCachePath"
 
-    $pythonRuntime = Resolve-PythonRuntime
-    Write-Host "Using Python runtime: $($pythonRuntime.Label)"
-
-    if (-not (Test-Path -LiteralPath $venvPath)) {
-        Invoke-Native $pythonRuntime.FilePath @($pythonRuntime.Arguments + @("-m", "venv", $venvPath))
+    if (-not (Test-Path -LiteralPath $venvPython)) {
+        $pythonRuntimes = @(Resolve-PythonRuntime)
+        [void](New-VenvWithFallback -PythonRuntimes $pythonRuntimes)
+    }
+    else {
+        Write-Host "Using existing virtual environment: $venvPython"
     }
 
-    $venvPython = Join-Path $venvPath "Scripts\python.exe"
     Invoke-Native $venvPython -m pip install --upgrade pip wheel "setuptools<82"
     $nvidiaGpuAvailable = Test-NvidiaGpuAvailable
     Write-Host "NVIDIA GPU available: $nvidiaGpuAvailable"

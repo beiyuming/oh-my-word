@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-APP_VERSION = "0.1.8"
+APP_VERSION = "0.1.9"
 
 
 @dataclass(slots=True, frozen=True)
@@ -14,6 +14,14 @@ class ChangelogEntry:
 
 
 CHANGELOG: tuple[ChangelogEntry, ...] = (
+    ChangelogEntry(
+        version="0.1.9",
+        date="2026-06-17",
+        changes=(
+            "VoxCPM 本地安装脚本在某个 Python 运行时无法创建 venv 时，会自动清理残留目录并继续尝试下一个兼容解释器。",
+            "VoxCPM 安装日志现在会明确记录每个 Python 候选创建虚拟环境的失败原因，便于定位目标机器上的环境问题。",
+        ),
+    ),
     ChangelogEntry(
         version="0.1.8",
         date="2026-06-17",

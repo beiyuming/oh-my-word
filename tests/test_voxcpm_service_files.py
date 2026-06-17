@@ -66,6 +66,15 @@ def test_voxcpm_local_installer_probes_available_python_runtimes() -> None:
     assert "Selected Python runtime" in script
 
 
+def test_voxcpm_local_installer_retries_next_python_runtime_when_venv_creation_fails() -> None:
+    script = (SERVICE_DIR / "install_local.ps1").read_text(encoding="utf-8")
+
+    assert "function New-VenvWithFallback" in script
+    assert "Failed to create virtual environment with" in script
+    assert "Trying next Python runtime candidate" in script
+    assert "Unable to create virtual environment with any supported Python runtime." in script
+
+
 def test_voxcpm_local_installer_direct_downloads_mirror_large_files_to_local_model_dir() -> None:
     script = (SERVICE_DIR / "install_local.ps1").read_text(encoding="utf-8")
 
