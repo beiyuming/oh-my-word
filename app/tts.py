@@ -3,13 +3,11 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from time import sleep
 from typing import Any
-from urllib.error import HTTPError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
 
-from PySide6.QtCore import QCoreApplication, QObject, QLocale, QUrl, Signal
+from PySide6.QtCore import QIODevice, QLocale, QObject, QUrl, Signal
+from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 
 from .models import (
     DEFAULT_VOXCPM_ENDPOINT,
@@ -72,7 +70,8 @@ class QtTextToSpeechProvider:
         self._configured_accent = accent
         self._apply_voice_preference()
 
-    def speak(self, text: str, *, accent: Any | None = None) -> bool:
+    def speak(self, text: str, *, accent: Any | None = None, request_tag: object | None = None) -> bool:
+        _ = request_tag
         message = text.strip()
         if not message:
             return False
@@ -219,6 +218,49 @@ class LocalWavPlayer(QObject):
             self._player.stop()
 
 
+class PcmStreamBufferDevice(QIODevice):
+    def __init__(self, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._buffer = bytearray()
+        self._finished = False
+        self.open(QIODevice.OpenModeFlag.ReadOnly)
+
+    def append_bytes(self, data: bytes) -> None:
+        if not data:
+            return
+        self._buffer.extend(data)
+        self.readyRead.emit()
+
+    def mark_finished(self) -> None:
+        self._finished = True
+        self.readyRead.emit()
+        self.readChannelFinished.emit()
+
+    def reset_stream(self) -> None:
+        self._buffer.clear()
+        self._finished = False
+
+    def bytesAvailable(self) -> int:  # type: ignore[override]
+        return len(self._buffer) + super().bytesAvailable()
+
+    def atEnd(self) -> bool:  # type: ignore[override]
+        return self._finished and not self._buffer
+
+    def isSequential(self) -> bool:  # type: ignore[override]
+        return True
+
+    def readData(self, maxlen: int) -> bytes:  # type: ignore[override]
+        if maxlen <= 0 or not self._buffer:
+            return b""
+        data = bytes(self._buffer[:maxlen])
+        del self._buffer[:maxlen]
+        return data
+
+    def writeData(self, data: bytes) -> int:  # type: ignore[override]
+        _ = data
+        return -1
+
+
 class StreamingPcmPlayer(QObject):
     def __init__(
         self,
@@ -229,21 +271,14 @@ class StreamingPcmPlayer(QObject):
         super().__init__(parent)
         self._last_error: str | None = None
         self._sink: Any | None = None
-        self._device: Any | None = None
+        self._device: PcmStreamBufferDevice | None = None
         self._prebuffer_seconds = min(max(float(prebuffer_seconds), 0.0), 2.0)
 
     @property
     def last_error(self) -> str | None:
         return self._last_error
 
-    def play_pcm_chunks(
-        self,
-        chunks: Iterable[bytes],
-        *,
-        sample_rate: int,
-        channels: int,
-        sample_format: str,
-    ) -> bool:
+    def start_stream(self, *, sample_rate: int, channels: int, sample_format: str) -> bool:
         if QAudioSink is None or QAudioFormat is None:
             self._last_error = "QtMultimedia streaming audio playback is unavailable."
             return False
@@ -256,36 +291,14 @@ class StreamingPcmPlayer(QObject):
 
         try:
             self.stop()
-            chunk_iter = iter(chunks)
-            prebuffered_chunks = self._prebuffer_chunks(
-                chunk_iter,
-                sample_rate=sample_rate,
-                channels=channels,
-            )
-            if not prebuffered_chunks:
-                self._last_error = "VoxCPM local service returned an empty audio stream."
-                return False
-
             audio_format = QAudioFormat()
             audio_format.setSampleRate(sample_rate)
             audio_format.setChannelCount(channels)
             audio_format.setSampleFormat(QAudioFormat.SampleFormat.Int16)
+            self._device = PcmStreamBufferDevice(self)
             self._sink = QAudioSink(audio_format, self)
             self._sink.setBufferSize(max(32768, sample_rate * channels * 2))
-            self._device = self._sink.start()
-            if self._device is None:
-                self._last_error = "Could not start streaming audio output."
-                return False
-
-            for chunk in prebuffered_chunks:
-                if not self._write_chunk(chunk):
-                    return False
-
-            for chunk in chunk_iter:
-                if not chunk:
-                    continue
-                if not self._write_chunk(chunk):
-                    return False
+            self._sink.start(self._device)
         except Exception as exc:  # pragma: no cover - backend-specific failure
             self._last_error = f"Streaming VoxCPM audio failed: {exc}"
             return False
@@ -293,34 +306,48 @@ class StreamingPcmPlayer(QObject):
         self._last_error = None
         return True
 
+    def append_chunk(self, chunk: bytes) -> None:
+        if self._device is not None:
+            self._device.append_bytes(chunk)
+
+    def finish_stream(self) -> None:
+        if self._device is not None:
+            self._device.mark_finished()
+
+    def play_pcm_chunks(
+        self,
+        chunks: Iterable[bytes],
+        *,
+        sample_rate: int,
+        channels: int,
+        sample_format: str,
+    ) -> bool:
+        chunk_iter = iter(chunks)
+        prebuffered_chunks = self._prebuffer_chunks(
+            chunk_iter,
+            sample_rate=sample_rate,
+            channels=channels,
+        )
+        if not prebuffered_chunks:
+            self._last_error = "VoxCPM local service returned an empty audio stream."
+            return False
+        if not self.start_stream(sample_rate=sample_rate, channels=channels, sample_format=sample_format):
+            return False
+        for chunk in prebuffered_chunks:
+            self.append_chunk(chunk)
+        for chunk in chunk_iter:
+            if chunk:
+                self.append_chunk(chunk)
+        self.finish_stream()
+        return True
+
     def stop(self) -> None:
         if self._sink is not None:
             self._sink.stop()
         self._sink = None
+        if self._device is not None:
+            self._device.close()
         self._device = None
-
-    def _write_chunk(self, chunk: bytes) -> bool:
-        assert self._device is not None
-        offset = 0
-        stalled_ticks = 0
-        while offset < len(chunk):
-            written = self._device.write(chunk[offset:])
-            if written < 0:
-                self._last_error = "Streaming audio output rejected PCM data."
-                return False
-            if written == 0:
-                stalled_ticks += 1
-                if stalled_ticks > 1000:
-                    self._last_error = "Streaming audio output stalled."
-                    return False
-                app = QCoreApplication.instance()
-                if app is not None:
-                    app.processEvents()
-                sleep(0.005)
-                continue
-            offset += written
-            stalled_ticks = 0
-        return True
 
     def _prebuffer_chunks(
         self,
@@ -342,11 +369,241 @@ class StreamingPcmPlayer(QObject):
         return buffered
 
 
-_DEFAULT_STREAM_PLAYER = object()
-_PCM_STREAM_READ_SIZE = 32768
+class VoxCpmPlaybackSession(QObject):
+    playback_started = Signal(object)
+    playback_failed = Signal(object, str)
+    finished = Signal(object)
+
+    def __init__(
+        self,
+        *,
+        network_manager: QNetworkAccessManager,
+        endpoint: str,
+        payload: dict[str, str],
+        timeout_seconds: int,
+        request_tag: object | None,
+        next_audio_path: Callable[[], Path],
+        audio_player: LocalWavPlayer,
+        stream_player: StreamingPcmPlayer | None,
+        stream_prebuffer_seconds: float,
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._network_manager = network_manager
+        self._endpoint = endpoint.rstrip("/")
+        self._payload = payload
+        self._timeout_seconds = timeout_seconds
+        self._request_tag = request_tag
+        self._next_audio_path = next_audio_path
+        self._audio_player = audio_player
+        self._stream_player = stream_player
+        self._stream_prebuffer_seconds = min(max(float(stream_prebuffer_seconds), 0.0), 2.0)
+        self._stream_reply: QNetworkReply | None = None
+        self._wav_reply: QNetworkReply | None = None
+        self._stopped = False
+        self._stream_started = False
+        self._stream_sample_rate = 48000
+        self._stream_channels = 1
+        self._stream_sample_format = "s16le"
+        self._stream_prebuffer = bytearray()
+
+    def start(self) -> bool:
+        if self._stream_player is None:
+            self._start_wav_request()
+            return True
+        self._start_stream_request()
+        return True
+
+    def stop(self) -> None:
+        self._stopped = True
+        self._abort_reply(self._stream_reply)
+        self._stream_reply = None
+        self._abort_reply(self._wav_reply)
+        self._wav_reply = None
+        self._audio_player.stop()
+        if self._stream_player is not None:
+            self._stream_player.stop()
+
+    def _start_stream_request(self) -> None:
+        request = self._json_request(f"{self._endpoint}/synthesize_stream")
+        self._stream_reply = self._network_manager.post(request, json.dumps(self._payload).encode("utf-8"))
+        self._stream_reply.metaDataChanged.connect(self._on_stream_metadata_changed)
+        self._stream_reply.readyRead.connect(self._on_stream_ready_read)
+        self._stream_reply.finished.connect(self._on_stream_finished)
+
+    def _on_stream_metadata_changed(self) -> None:
+        if self._stream_reply is None:
+            return
+        self._stream_sample_rate = _reply_positive_int(
+            self._stream_reply,
+            b"X-OhMyWord-Sample-Rate",
+            48000,
+        )
+        self._stream_channels = _reply_positive_int(
+            self._stream_reply,
+            b"X-OhMyWord-Channels",
+            1,
+        )
+        self._stream_sample_format = _reply_header_text(
+            self._stream_reply,
+            b"X-OhMyWord-Sample-Format",
+            "s16le",
+        )
+
+    def _on_stream_ready_read(self) -> None:
+        if self._stopped or self._stream_reply is None:
+            return
+        self._on_stream_metadata_changed()
+        data = bytes(self._stream_reply.readAll())
+        if not data:
+            return
+        if self._stream_started:
+            assert self._stream_player is not None
+            self._stream_player.append_chunk(data)
+            return
+        self._stream_prebuffer.extend(data)
+        if len(self._stream_prebuffer) >= self._target_prebuffer_bytes():
+            self._start_stream_player()
+
+    def _on_stream_finished(self) -> None:
+        reply = self._stream_reply
+        self._stream_reply = None
+        if reply is None:
+            return
+
+        if self._stopped:
+            reply.deleteLater()
+            return
+
+        self._on_stream_metadata_changed()
+        trailing = bytes(reply.readAll())
+        if trailing:
+            if self._stream_started and self._stream_player is not None:
+                self._stream_player.append_chunk(trailing)
+            else:
+                self._stream_prebuffer.extend(trailing)
+
+        status_code = _reply_status_code(reply)
+        network_error = reply.error()
+        reply.deleteLater()
+
+        if status_code in {404, 405}:
+            self._start_wav_request()
+            return
+
+        if network_error != QNetworkReply.NetworkError.NoError:
+            self._fail(f"VoxCPM local streaming request failed: {reply.errorString()}")
+            return
+
+        if not self._stream_started:
+            if not self._stream_prebuffer:
+                self._fail("VoxCPM local service returned an empty audio stream.")
+                return
+            if not self._start_stream_player():
+                return
+
+        if self._stream_player is not None:
+            self._stream_player.finish_stream()
+        self._complete()
+
+    def _start_stream_player(self) -> bool:
+        if self._stream_started:
+            return True
+        if self._stream_player is None:
+            self._fail("QtMultimedia streaming audio playback is unavailable.")
+            return False
+        if not self._stream_player.start_stream(
+            sample_rate=self._stream_sample_rate,
+            channels=self._stream_channels,
+            sample_format=self._stream_sample_format,
+        ):
+            self._fail(self._stream_player.last_error or "Streaming VoxCPM audio failed.")
+            return False
+        if self._stream_prebuffer:
+            self._stream_player.append_chunk(bytes(self._stream_prebuffer))
+            self._stream_prebuffer.clear()
+        self._stream_started = True
+        self.playback_started.emit(self._request_tag)
+        return True
+
+    def _start_wav_request(self) -> None:
+        request = self._json_request(f"{self._endpoint}/synthesize")
+        self._wav_reply = self._network_manager.post(request, json.dumps(self._payload).encode("utf-8"))
+        self._wav_reply.finished.connect(self._on_wav_finished)
+
+    def _on_wav_finished(self) -> None:
+        reply = self._wav_reply
+        self._wav_reply = None
+        if reply is None:
+            return
+
+        if self._stopped:
+            reply.deleteLater()
+            return
+
+        audio_bytes = bytes(reply.readAll())
+        network_error = reply.error()
+        error_text = reply.errorString()
+        reply.deleteLater()
+
+        if network_error != QNetworkReply.NetworkError.NoError:
+            self._fail(f"VoxCPM local service request failed: {error_text}")
+            return
+        if not audio_bytes:
+            self._fail("VoxCPM local service returned an empty audio response.")
+            return
+
+        try:
+            audio_path = self._next_audio_path()
+            audio_path.parent.mkdir(parents=True, exist_ok=True)
+            self._audio_player.stop()
+            audio_path.write_bytes(audio_bytes)
+            if not self._audio_player.play(audio_path):
+                self._fail(self._audio_player.last_error or "Playing VoxCPM audio failed.")
+                return
+        except Exception as exc:
+            self._fail(f"Playing VoxCPM audio failed: {exc}")
+            return
+
+        self.playback_started.emit(self._request_tag)
+        self._complete()
+
+    def _target_prebuffer_bytes(self) -> int:
+        return int(self._stream_sample_rate * self._stream_channels * 2 * self._stream_prebuffer_seconds)
+
+    def _json_request(self, url: str) -> QNetworkRequest:
+        request = QNetworkRequest(QUrl(url))
+        request.setHeader(QNetworkRequest.KnownHeaders.ContentTypeHeader, "application/json")
+        if hasattr(request, "setTransferTimeout"):
+            request.setTransferTimeout(self._timeout_seconds * 1000)
+        return request
+
+    def _abort_reply(self, reply: QNetworkReply | None) -> None:
+        if reply is None:
+            return
+        try:
+            reply.abort()
+        finally:
+            reply.deleteLater()
+
+    def _fail(self, message: str) -> None:
+        if self._stopped:
+            self.finished.emit(self._request_tag)
+            self.deleteLater()
+            return
+        self.playback_failed.emit(self._request_tag, message)
+        self.finished.emit(self._request_tag)
+        self.deleteLater()
+
+    def _complete(self) -> None:
+        self.finished.emit(self._request_tag)
+        self.deleteLater()
 
 
-class VoxCpmHttpProvider:
+class VoxCpmHttpProvider(QObject):
+    playback_started = Signal(object)
+    playback_failed = Signal(object, str)
+
     def __init__(
         self,
         *,
@@ -354,24 +611,32 @@ class VoxCpmHttpProvider:
         timeout_seconds: int,
         cache_dir: Path,
         audio_player: LocalWavPlayer | Any | None = None,
-        stream_player: Any = _DEFAULT_STREAM_PLAYER,
+        stream_player: Any = None,
         stream_prebuffer_seconds: float = DEFAULT_VOXCPM_STREAM_PREBUFFER_SECONDS,
+        network_manager: QNetworkAccessManager | None = None,
+        parent: QObject | None = None,
     ) -> None:
+        super().__init__(parent)
         self._endpoint = endpoint.rstrip("/")
         self._timeout_seconds = timeout_seconds
         self._cache_dir = cache_dir
-        self._audio_player = audio_player or LocalWavPlayer()
-        self._stream_player = (
-            StreamingPcmPlayer(prebuffer_seconds=stream_prebuffer_seconds)
-            if stream_player is _DEFAULT_STREAM_PLAYER
-            else stream_player
-        )
+        self._audio_player = audio_player or LocalWavPlayer(self)
+        if stream_player is None:
+            created_stream_player = StreamingPcmPlayer(prebuffer_seconds=stream_prebuffer_seconds)
+            if isinstance(created_stream_player, QObject):
+                created_stream_player.setParent(self)
+            self._stream_player = created_stream_player
+        else:
+            self._stream_player = stream_player
+        self._stream_prebuffer_seconds = stream_prebuffer_seconds
+        self._network_manager = network_manager or QNetworkAccessManager(self)
         self._last_error: str | None = None
         self._cache_counter = 0
         self._available = _is_local_http_endpoint(self._endpoint)
         self._initialization_state = (
             TtsInitializationState.READY if self._available else TtsInitializationState.UNAVAILABLE
         )
+        self._current_session: VoxCpmPlaybackSession | None = None
         if not self._available:
             self._last_error = "VoxCPM endpoint must be a local HTTP endpoint."
 
@@ -388,12 +653,13 @@ class VoxCpmHttpProvider:
         return self._initialization_state
 
     def set_accent(self, accent: Any | None) -> None:
+        _ = accent
         return None
 
     def warm_up(self) -> TtsInitializationState:
         return self._initialization_state
 
-    def speak(self, text: str, *, accent: Any | None = None) -> bool:
+    def speak(self, text: str, *, accent: Any | None = None, request_tag: object | None = None) -> bool:
         message = text.strip()
         if not message:
             return False
@@ -407,92 +673,49 @@ class VoxCpmHttpProvider:
             "format": "wav",
         }
 
-        if self._stream_player is not None:
-            streaming_result = self._speak_streaming(payload)
-            if streaming_result is not None:
-                return streaming_result
-
-        return self._speak_wav(payload)
-
-    def _speak_streaming(self, payload: dict[str, str]) -> bool | None:
-        request = Request(
-            f"{self._endpoint}/synthesize_stream",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+        self.stop()
+        session = VoxCpmPlaybackSession(
+            network_manager=self._network_manager,
+            endpoint=self._endpoint,
+            payload=payload,
+            timeout_seconds=self._timeout_seconds,
+            request_tag=request_tag,
+            next_audio_path=self._next_audio_path,
+            audio_player=self._audio_player,
+            stream_player=self._stream_player,
+            stream_prebuffer_seconds=self._stream_prebuffer_seconds,
+            parent=self,
         )
-
-        try:
-            with urlopen(request, timeout=self._timeout_seconds) as response:
-                sample_rate = _positive_header_int(response, "X-OhMyWord-Sample-Rate", 48000)
-                channels = _positive_header_int(response, "X-OhMyWord-Channels", 1)
-                sample_format = _header_text(response, "X-OhMyWord-Sample-Format", "s16le")
-
-                def chunks() -> Iterable[bytes]:
-                    while True:
-                        chunk = response.read(_PCM_STREAM_READ_SIZE)
-                        if not chunk:
-                            break
-                        yield chunk
-
-                if not self._stream_player.play_pcm_chunks(
-                    chunks(),
-                    sample_rate=sample_rate,
-                    channels=channels,
-                    sample_format=sample_format,
-                ):
-                    player_error = getattr(self._stream_player, "last_error", None)
-                    self._last_error = player_error or "Streaming VoxCPM audio failed."
-                    return False
-        except HTTPError as exc:
-            if exc.code in {404, 405}:
-                return None
-            self._last_error = f"VoxCPM local streaming request failed: {exc}"
-            return False
-        except Exception as exc:
-            self._last_error = f"VoxCPM local streaming request failed: {exc}"
-            return False
-
+        session.playback_started.connect(self._on_session_started)
+        session.playback_failed.connect(self._on_session_failed)
+        session.finished.connect(self._on_session_finished)
+        session.destroyed.connect(self._on_session_destroyed)
+        self._current_session = session
         self._last_error = None
-        return True
-
-    def _speak_wav(self, payload: dict[str, str]) -> bool:
-        request = Request(
-            f"{self._endpoint}/synthesize",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-        )
-
-        try:
-            with urlopen(request, timeout=self._timeout_seconds) as response:
-                audio_bytes = response.read()
-        except Exception as exc:
-            self._last_error = f"VoxCPM local service request failed: {exc}"
-            return False
-
-        if not audio_bytes:
-            self._last_error = "VoxCPM local service returned an empty audio response."
-            return False
-
-        try:
-            self._cache_dir.mkdir(parents=True, exist_ok=True)
-            self._audio_player.stop()
-            audio_path = self._next_audio_path()
-            audio_path.write_bytes(audio_bytes)
-            if not self._audio_player.play(audio_path):
-                player_error = getattr(self._audio_player, "last_error", None)
-                self._last_error = player_error or "Playing VoxCPM audio failed."
-                return False
-        except Exception as exc:
-            self._last_error = f"Playing VoxCPM audio failed: {exc}"
-            return False
-
-        self._last_error = None
-        return True
+        return session.start()
 
     def stop(self) -> None:
+        if self._current_session is not None:
+            self._current_session.stop()
+            self._current_session.deleteLater()
+            self._current_session = None
         self._audio_player.stop()
         if self._stream_player is not None:
             self._stream_player.stop()
+
+    def _on_session_started(self, request_tag: object | None) -> None:
+        self._last_error = None
+        self.playback_started.emit(request_tag)
+
+    def _on_session_failed(self, request_tag: object | None, message: str) -> None:
+        self._last_error = message
+        self.playback_failed.emit(request_tag, message)
+
+    def _on_session_finished(self, _request_tag: object | None) -> None:
+        return None
+
+    def _on_session_destroyed(self, _obj: object) -> None:
+        self._current_session = None
 
     def _next_audio_path(self) -> Path:
         path = self._cache_dir / f"voxcpm-{self._cache_counter % 4}.wav"
@@ -503,6 +726,8 @@ class VoxCpmHttpProvider:
 class PronunciationService(QObject):
     availability_changed = Signal(bool)
     error_occurred = Signal(str)
+    playback_started = Signal(object)
+    playback_failed = Signal(object, str)
 
     def __init__(
         self,
@@ -526,6 +751,7 @@ class PronunciationService(QObject):
             cache_dir=cache_dir,
             stream_prebuffer_seconds=stream_prebuffer_seconds,
         )
+        self._connect_backend_signals()
 
         if on_error is not None:
             self.error_occurred.connect(on_error)
@@ -563,10 +789,10 @@ class PronunciationService(QObject):
         if self.is_available != was_available:
             self.availability_changed.emit(self.is_available)
 
-    def speak(self, text: str, *, accent: Any | None = None) -> bool:
+    def speak(self, text: str, *, accent: Any | None = None, request_tag: object | None = None) -> bool:
         if self.initialization_state is not TtsInitializationState.READY:
             return False
-        result = self._backend.speak(text, accent=accent)
+        result = self._backend.speak(text, accent=accent, request_tag=request_tag)
         if not result and self.last_error:
             self.error_occurred.emit(self.last_error)
             self.availability_changed.emit(self.is_available)
@@ -590,8 +816,20 @@ class PronunciationService(QObject):
                 timeout_seconds=timeout_seconds,
                 cache_dir=cache_dir or Path.cwd() / "storage" / "tts_cache",
                 stream_prebuffer_seconds=stream_prebuffer_seconds,
+                parent=self,
             )
         return QtTextToSpeechProvider(self, accent=accent)
+
+    def _connect_backend_signals(self) -> None:
+        if not isinstance(self._backend, VoxCpmHttpProvider):
+            return
+        self._backend.playback_started.connect(self.playback_started.emit)
+        self._backend.playback_failed.connect(self._on_backend_playback_failed)
+
+    def _on_backend_playback_failed(self, request_tag: object | None, message: str) -> None:
+        self.error_occurred.emit(message)
+        self.playback_failed.emit(request_tag, message)
+        self.availability_changed.emit(self.is_available)
 
 
 def _is_local_http_endpoint(value: str) -> bool:
@@ -604,15 +842,33 @@ def _is_local_http_endpoint(value: str) -> bool:
     }
 
 
-def _header_text(response: Any, name: str, default: str) -> str:
-    headers = getattr(response, "headers", {})
-    value = headers.get(name, default) if hasattr(headers, "get") else default
-    return str(value or default).strip() or default
-
-
-def _positive_header_int(response: Any, name: str, default: int) -> int:
+def _reply_header_text(reply: QNetworkReply, name: bytes, default: str) -> str:
     try:
-        value = int(_header_text(response, name, str(default)))
+        raw_value = reply.rawHeader(name)
+    except Exception:
+        return default
+    if not raw_value:
+        return default
+    try:
+        text = bytes(raw_value).decode("utf-8", errors="ignore").strip()
+    except Exception:
+        return default
+    return text or default
+
+
+def _reply_positive_int(reply: QNetworkReply, name: bytes, default: int) -> int:
+    try:
+        value = int(_reply_header_text(reply, name, str(default)))
     except ValueError:
         return default
     return value if value > 0 else default
+
+
+def _reply_status_code(reply: QNetworkReply) -> int | None:
+    status = reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
+    if status is None:
+        return None
+    try:
+        return int(status)
+    except (TypeError, ValueError):
+        return None

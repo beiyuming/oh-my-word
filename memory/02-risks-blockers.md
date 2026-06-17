@@ -54,6 +54,12 @@
 - 影响：即使主程序已打包支持流式，客户端也会回退完整 WAV，用户仍会感到每次朗读卡几秒；短词吞音问题也不会因主程序重装自动消失。v0.1.2 已加入 VoxCPM badcase 参数和首尾静音保护，但这些改动必须进入已安装的 service 才会生效。
 - 处理：v0.1.3 已让设置页停止服务可以识别并停止同一 local endpoint 上命令行为 `uvicorn service.server:app` 的旧 VoxCPM 进程，同时避免误杀无关端口进程。之后仍需要通过设置页“后台安装 / 更新”或安装器 VoxCPM 选项刷新 companion service。刷新后必须重新验证 `/synthesize_stream` 返回 200，再做人工听音。
 
+### 9. 安装器脚本在 PyInstaller 结束后可能遇到瞬时文件锁
+
+- 风险：2026-06-17 首次执行 `.\build\build_installer.ps1` 时，PyInstaller 已完成，但 `Compress-Archive` 打包 portable payload 时命中 `dist\oh-my-word-py\_internal\base_library.zip` 被占用，导致脚本失败。
+- 影响：同一轮发布里首次一键打包可能偶发失败，即使 portable 产物本身已经构建成功。
+- 处理：本轮通过复用已生成的 portable 产物执行 `.\build\build_installer.ps1 -SkipPortableBuild` 成功绕过。后续若继续复现，应给安装器脚本增加 zip 重试或文件锁等待逻辑，而不是把这类瞬时失败当成真正的构建失败。
+
 ## 普通不确定性
 
 - 仓库还没有为每个领域建立专用 spec。只有在契约变化或未来 agent 确实需要时，才新增聚焦 spec。

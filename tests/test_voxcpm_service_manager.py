@@ -135,6 +135,34 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
             self.assertTrue(process.terminated)
             self.assertFalse(manager.status().running)
 
+    def test_start_service_does_not_probe_health_before_spawning(self) -> None:
+        process = _FakeProcess()
+        calls = {"urlopen": 0}
+
+        def fake_process_factory(*_: Any, **__: Any) -> _FakeProcess:
+            return process
+
+        def fake_urlopen(*_args: Any, **_kwargs: Any) -> _FakeResponse:
+            calls["urlopen"] += 1
+            return _FakeResponse({"status": "ok"})
+
+        with TemporaryDirectory() as tmp_dir:
+            install_root = Path(tmp_dir) / "voxcpm"
+            (install_root / ".venv" / "Scripts").mkdir(parents=True)
+            (install_root / ".venv" / "Scripts" / "python.exe").write_text("", encoding="utf-8")
+            (install_root / "start_service.ps1").write_text("", encoding="utf-8")
+            manager = VoxCpmServiceManager(
+                install_root=install_root,
+                model_cache_root=install_root / "models",
+                script_root=Path(tmp_dir) / "scripts",
+                process_factory=fake_process_factory,
+                urlopen_func=fake_urlopen,
+            )
+
+            self.assertTrue(manager.start_service())
+
+        self.assertEqual(calls["urlopen"], 0)
+
     def test_stop_service_stops_matching_endpoint_process_started_by_previous_app_session(self) -> None:
         killed: list[int] = []
 

@@ -186,6 +186,35 @@ class ControllerPopupActionTests(unittest.TestCase):
         controller.tts.speak.assert_called_once_with("focus. Focus on review.", accent=controller.settings.accent)
         controller.study_store.record_word_pronounced.assert_called_once_with("focus", pronounced_at=ANY)
 
+    def test_voxcpm_pronounce_text_defers_record_until_async_playback_started(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings(tts_provider=TtsProvider.VOXCPM_LOCAL)
+        controller.current_word = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus on review.", "专注复习。")
+        controller.study_store = Mock()
+        controller.voxcpm_service = Mock()
+        controller.voxcpm_service.is_running.return_value = True
+        captured: dict[str, object] = {}
+
+        def fake_speak(text: str, *, accent: object | None = None, request_tag: object | None = None) -> bool:
+            captured["text"] = text
+            captured["accent"] = accent
+            captured["request_tag"] = request_tag
+            return True
+
+        controller.tts = Mock()
+        controller.tts.initialization_state = TtsInitializationState.READY
+        controller.tts.provider = TtsProvider.VOXCPM_LOCAL
+        controller.tts.speak.side_effect = fake_speak
+
+        controller.pronounce_text("focus. Focus on review.")
+
+        self.assertEqual(captured["text"], '"focus". Focus on review.')
+        controller.study_store.record_word_pronounced.assert_not_called()
+
+        controller._on_tts_playback_started(captured["request_tag"])
+
+        controller.study_store.record_word_pronounced.assert_called_once_with("focus", pronounced_at=ANY)
+
     def test_pronounce_current_word_uses_configured_pronunciation_content_mode(self) -> None:
         controller = AppController(self.app)
         controller.settings = AppSettings(pronunciation_content_mode=PronunciationContentMode.EXAMPLE)
@@ -209,6 +238,14 @@ class ControllerPopupActionTests(unittest.TestCase):
 
         controller.tts.speak.assert_called_once_with("focus. Focus on review.", accent=controller.settings.accent)
         controller.study_store.record_word_pronounced.assert_not_called()
+
+    def test_tts_playback_failed_shows_notice(self) -> None:
+        controller = AppController(self.app)
+        controller.tray = Mock()
+
+        controller._on_tts_playback_failed(("req-1", "focus"), "Streaming VoxCPM audio failed.")
+
+        controller.tray.show_message.assert_called_once_with("oh my word", "语音朗读失败：Streaming VoxCPM audio failed.")
 
     def test_pronounce_text_shows_initialization_notice_when_tts_is_not_ready(self) -> None:
         controller = AppController(self.app)
@@ -322,13 +359,13 @@ class ControllerPopupActionTests(unittest.TestCase):
         controller.voxcpm_service = Mock()
         controller.voxcpm_service.is_installed.return_value = True
         controller.voxcpm_service.is_running.return_value = False
-        controller.voxcpm_service.health_check.return_value = False
         controller.voxcpm_service.start_service.return_value = True
         controller.tray = Mock()
 
         controller.pronounce_text("focus. Focus on review.")
 
         controller.voxcpm_service.start_service.assert_called_once_with()
+        controller.voxcpm_service.health_check.assert_not_called()
         controller.tts.speak.assert_not_called()
         controller.tray.show_message.assert_called_once_with("oh my word", "VoxCPM 本地服务正在启动，请稍后再试。")
 
@@ -346,11 +383,11 @@ class ControllerPopupActionTests(unittest.TestCase):
         controller.voxcpm_service = Mock()
         controller.voxcpm_service.is_installed.return_value = False
         controller.voxcpm_service.is_running.return_value = False
-        controller.voxcpm_service.health_check.return_value = False
         controller.tray = Mock()
 
         controller.pronounce_text("focus. Focus on review.")
 
+        controller.voxcpm_service.health_check.assert_not_called()
         controller.voxcpm_service.start_service.assert_not_called()
         controller.tts.speak.assert_not_called()
         controller.tray.show_message.assert_called_once_with(
@@ -358,7 +395,7 @@ class ControllerPopupActionTests(unittest.TestCase):
             "VoxCPM 尚未安装，请在设置中后台安装后再使用。",
         )
 
-    def test_pronounce_text_uses_voxcpm_when_service_health_check_succeeds(self) -> None:
+    def test_pronounce_text_uses_voxcpm_when_service_is_running(self) -> None:
         controller = AppController(self.app)
         controller.settings = AppSettings(
             tts_provider=TtsProvider.VOXCPM_LOCAL,
@@ -370,14 +407,18 @@ class ControllerPopupActionTests(unittest.TestCase):
         controller.tts.provider = TtsProvider.VOXCPM_LOCAL
         controller.tts.speak.return_value = True
         controller.voxcpm_service = Mock()
-        controller.voxcpm_service.is_running.return_value = False
-        controller.voxcpm_service.health_check.return_value = True
+        controller.voxcpm_service.is_running.return_value = True
         controller.study_store = Mock()
 
         controller.pronounce_text("focus. Focus on review.")
 
+        controller.voxcpm_service.health_check.assert_not_called()
         controller.voxcpm_service.start_service.assert_not_called()
-        controller.tts.speak.assert_called_once_with('"focus". Focus on review.', accent=controller.settings.accent)
+        controller.tts.speak.assert_called_once_with(
+            '"focus". Focus on review.',
+            accent=controller.settings.accent,
+            request_tag=ANY,
+        )
 
     def test_pronounce_text_formats_voxcpm_prompt_and_quotes_word(self) -> None:
         controller = AppController(self.app)
@@ -400,6 +441,7 @@ class ControllerPopupActionTests(unittest.TestCase):
         controller.tts.speak.assert_called_once_with(
             '(A calm English teacher voice.)"focus". Focus on review.',
             accent=controller.settings.accent,
+            request_tag=ANY,
         )
 
     def test_apply_settings_reconfigures_voxcpm_manager(self) -> None:

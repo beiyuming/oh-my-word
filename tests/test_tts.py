@@ -6,146 +6,141 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
-from PySide6.QtCore import QLocale
+from PySide6.QtCore import QLocale, QObject, Signal
 
 from app.models import Accent, TtsInitializationState, TtsProvider
-from app.tts import PronunciationService, StreamingPcmPlayer, VoxCpmHttpProvider
-
-
-class _FakeResponse:
-    status = 200
-
-    def __init__(self, payload: bytes) -> None:
-        self.payload = payload
-
-    def __enter__(self) -> "_FakeResponse":
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        return None
-
-    def read(self) -> bytes:
-        return self.payload
-
-
-class _FakeStreamingResponse:
-    status = 200
-
-    def __init__(self, chunks: list[bytes]) -> None:
-        self._chunks = list(chunks)
-        self.headers = {
-            "X-OhMyWord-Sample-Rate": "48000",
-            "X-OhMyWord-Channels": "1",
-            "X-OhMyWord-Sample-Format": "s16le",
-        }
-        self.read_count = 0
-
-    def __enter__(self) -> "_FakeStreamingResponse":
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        return None
-
-    def read(self, size: int = -1) -> bytes:
-        _ = size
-        self.read_count += 1
-        if not self._chunks:
-            return b""
-        return self._chunks.pop(0)
+from app.tts import PcmStreamBufferDevice, PronunciationService, StreamingPcmPlayer, VoxCpmHttpProvider
 
 
 class VoxCpmHttpProviderTests(unittest.TestCase):
-    def test_streams_pcm_chunks_without_waiting_for_full_wav_response(self) -> None:
+    def test_creates_qt_playback_session_with_request_payload(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeSession(QObject):
+            playback_started = Signal(object)
+            playback_failed = Signal(object, str)
+            finished = Signal(object)
+
+            def __init__(self, **kwargs: object) -> None:
+                super().__init__()
+                captured.update(kwargs)
+
+            def start(self) -> bool:
+                return True
+
+            def stop(self) -> None:
+                return None
+
         wav_player = Mock()
         stream_player = Mock()
-        response = _FakeStreamingResponse([b"first", b"second"])
-
-        def play_first_chunk(chunks: object, **kwargs: object) -> bool:
-            chunk_iter = iter(chunks)  # type: ignore[arg-type]
-            self.assertEqual(next(chunk_iter), b"first")
-            self.assertEqual(kwargs["sample_rate"], 48000)
-            self.assertEqual(kwargs["channels"], 1)
-            self.assertEqual(kwargs["sample_format"], "s16le")
-            return True
-
-        stream_player.play_pcm_chunks.side_effect = play_first_chunk
-        with TemporaryDirectory() as tmp_dir:
+        network_manager = Mock()
+        with (
+            TemporaryDirectory() as tmp_dir,
+            patch("app.tts.VoxCpmPlaybackSession", FakeSession),
+        ):
             provider = VoxCpmHttpProvider(
                 endpoint="http://127.0.0.1:8808",
                 timeout_seconds=5,
                 cache_dir=Path(tmp_dir),
                 audio_player=wav_player,
                 stream_player=stream_player,
+                network_manager=network_manager,
+                stream_prebuffer_seconds=0.6,
             )
 
-            with patch("app.tts.urlopen", return_value=response) as urlopen:
-                result = provider.speak("focus", accent=Accent.US)
+            result = provider.speak("focus", accent=Accent.US, request_tag=("req-1", "focus"))
 
         self.assertTrue(result)
-        request = urlopen.call_args.args[0]
-        self.assertEqual(request.full_url, "http://127.0.0.1:8808/synthesize_stream")
-        self.assertEqual(response.read_count, 1)
-        wav_player.play.assert_not_called()
-        stream_player.play_pcm_chunks.assert_called_once()
+        self.assertEqual(captured["endpoint"], "http://127.0.0.1:8808")
+        self.assertEqual(captured["timeout_seconds"], 5)
+        self.assertEqual(captured["request_tag"], ("req-1", "focus"))
+        self.assertEqual(captured["stream_prebuffer_seconds"], 0.6)
+        self.assertEqual(captured["payload"], {"text": "focus", "accent": "us", "format": "wav"})
+        self.assertIs(captured["audio_player"], wav_player)
+        self.assertIs(captured["stream_player"], stream_player)
+        self.assertIs(captured["network_manager"], network_manager)
 
-    def test_posts_text_and_plays_wav_bytes(self) -> None:
-        player = Mock()
-        with TemporaryDirectory() as tmp_dir:
+    def test_repeated_voxcpm_speech_stops_previous_session_before_replacing_it(self) -> None:
+        created: list[QObject] = []
+
+        class FakeSession(QObject):
+            playback_started = Signal(object)
+            playback_failed = Signal(object, str)
+            finished = Signal(object)
+
+            def __init__(self, **_kwargs: object) -> None:
+                super().__init__()
+                self.stop_calls = 0
+                created.append(self)
+
+            def start(self) -> bool:
+                return True
+
+            def stop(self) -> None:
+                self.stop_calls += 1
+
+        with (
+            TemporaryDirectory() as tmp_dir,
+            patch("app.tts.VoxCpmPlaybackSession", FakeSession),
+        ):
             provider = VoxCpmHttpProvider(
                 endpoint="http://127.0.0.1:8808",
                 timeout_seconds=5,
                 cache_dir=Path(tmp_dir),
-                audio_player=player,
-                stream_player=None,
+                audio_player=Mock(),
+                stream_player=Mock(),
+                network_manager=Mock(),
             )
 
-            with patch("app.tts.urlopen", return_value=_FakeResponse(b"RIFFfake-wave")) as urlopen:
-                result = provider.speak("focus. Focus on review.", accent=Accent.US)
+            self.assertTrue(provider.speak("focus", accent=Accent.US, request_tag=("req-1", "focus")))
+            self.assertTrue(provider.speak("derive", accent=Accent.US, request_tag=("req-2", "derive")))
 
-        self.assertTrue(result)
-        request = urlopen.call_args.args[0]
-        self.assertEqual(request.full_url, "http://127.0.0.1:8808/synthesize")
-        self.assertEqual(request.get_method(), "POST")
-        payload = json.loads(request.data.decode("utf-8"))
-        self.assertEqual(payload["text"], "focus. Focus on review.")
-        self.assertEqual(payload["accent"], "us")
-        player.play.assert_called_once()
+        self.assertEqual(len(created), 2)
+        self.assertEqual(created[0].stop_calls, 1)
 
-    def test_repeated_voxcpm_speech_uses_rotating_cache_files_and_stops_previous_audio(self) -> None:
-        player = Mock()
-        with TemporaryDirectory() as tmp_dir:
+    def test_playback_signals_are_forwarded_from_session(self) -> None:
+        created: list[QObject] = []
+
+        class FakeSession(QObject):
+            playback_started = Signal(object)
+            playback_failed = Signal(object, str)
+            finished = Signal(object)
+
+            def __init__(self, **_kwargs: object) -> None:
+                super().__init__()
+                created.append(self)
+
+            def start(self) -> bool:
+                return True
+
+            def stop(self) -> None:
+                return None
+
+        with (
+            TemporaryDirectory() as tmp_dir,
+            patch("app.tts.VoxCpmPlaybackSession", FakeSession),
+        ):
             provider = VoxCpmHttpProvider(
                 endpoint="http://127.0.0.1:8808",
                 timeout_seconds=5,
                 cache_dir=Path(tmp_dir),
-                audio_player=player,
-                stream_player=None,
+                audio_player=Mock(),
+                stream_player=Mock(),
+                network_manager=Mock(),
             )
+            started = Mock()
+            failed = Mock()
+            provider.playback_started.connect(started)
+            provider.playback_failed.connect(failed)
 
-            with patch("app.tts.urlopen", return_value=_FakeResponse(b"RIFFfake-wave")):
-                self.assertTrue(provider.speak("focus", accent=Accent.US))
-                self.assertTrue(provider.speak("derive", accent=Accent.US))
+            self.assertTrue(provider.speak("focus", accent=Accent.US, request_tag=("req-1", "focus")))
+            session = created[0]
+            session.playback_started.emit(("req-1", "focus"))
+            session.playback_failed.emit(("req-1", "focus"), "stream failed")
 
-        first_path = player.play.call_args_list[0].args[0]
-        second_path = player.play.call_args_list[1].args[0]
-        self.assertNotEqual(first_path, second_path)
-        self.assertEqual(player.stop.call_count, 2)
-
-    def test_returns_false_when_http_fails(self) -> None:
-        player = Mock()
-        provider = VoxCpmHttpProvider(
-            endpoint="http://127.0.0.1:8808",
-            timeout_seconds=1,
-            cache_dir=Path("."),
-            audio_player=player,
-        )
-
-        with patch("app.tts.urlopen", side_effect=OSError("service down")):
-            result = provider.speak("focus", accent=Accent.US)
-
-        self.assertFalse(result)
-        self.assertIn("service down", provider.last_error or "")
-        player.play.assert_not_called()
+        started.assert_called_once_with(("req-1", "focus"))
+        failed.assert_called_once_with(("req-1", "focus"), "stream failed")
+        self.assertEqual(provider.last_error, "stream failed")
 
 
 class StreamingPcmPlayerTests(unittest.TestCase):
@@ -177,9 +172,9 @@ class StreamingPcmPlayerTests(unittest.TestCase):
             def setBufferSize(self, _size: int) -> None:
                 return None
 
-            def start(self) -> FakeDevice:
+            def start(self, device: object) -> None:
                 events.append("start")
-                return self.device
+                self.started_device = device
 
             def stop(self) -> None:
                 return None
@@ -203,8 +198,8 @@ class StreamingPcmPlayerTests(unittest.TestCase):
 
         self.assertTrue(result)
         self.assertEqual(events[:3], ["yield:aa", "yield:bb", "start"])
-        self.assertIn("write:aa", events)
-        self.assertIn("write:bb", events)
+        self.assertEqual(player._device.read(2), b"aa")
+        self.assertEqual(player._device.read(2), b"bb")
 
     def test_pronunciation_service_passes_voxcpm_prebuffer_setting_to_stream_player(self) -> None:
         created: list[float] = []
@@ -237,13 +232,32 @@ class StreamingPcmPlayerTests(unittest.TestCase):
             audio_player=player,
         )
 
-        with patch("app.tts.urlopen") as urlopen:
-            result = provider.speak("focus", accent=Accent.US)
+        result = provider.speak("focus", accent=Accent.US)
 
         self.assertFalse(result)
         self.assertIn("local HTTP endpoint", provider.last_error or "")
-        urlopen.assert_not_called()
         player.play.assert_not_called()
+
+
+class PcmStreamBufferDeviceTests(unittest.TestCase):
+    def test_appended_bytes_can_be_read_back_in_pull_order(self) -> None:
+        device = PcmStreamBufferDevice()
+
+        device.append_bytes(b"abc")
+        device.append_bytes(b"de")
+
+        self.assertEqual(device.read(3), b"abc")
+        self.assertEqual(device.read(2), b"de")
+
+    def test_finished_stream_reports_end_after_buffer_drains(self) -> None:
+        device = PcmStreamBufferDevice()
+
+        device.append_bytes(b"abc")
+        device.mark_finished()
+
+        self.assertFalse(device.atEnd())
+        self.assertEqual(device.read(3), b"abc")
+        self.assertTrue(device.atEnd())
 
 
 class PronunciationServiceProviderTests(unittest.TestCase):
@@ -322,3 +336,18 @@ class PronunciationServiceProviderTests(unittest.TestCase):
         self.assertEqual(service.provider, TtsProvider.VOXCPM_LOCAL)
         self.assertIs(service.initialization_state, TtsInitializationState.READY)
         self.assertIs(service.warm_up(), TtsInitializationState.READY)
+
+    def test_voxcpm_provider_accepts_request_tag_argument(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            service = PronunciationService(
+                provider=TtsProvider.VOXCPM_LOCAL,
+                endpoint="http://127.0.0.1:8808",
+                timeout_seconds=5,
+                cache_dir=Path(tmp_dir),
+            )
+
+        with patch.object(service._backend, "speak", return_value=True) as speak:
+            result = service.speak("focus", accent=Accent.US, request_tag=("req-1", "focus"))
+
+        self.assertTrue(result)
+        speak.assert_called_once_with("focus", accent=Accent.US, request_tag=("req-1", "focus"))

@@ -276,6 +276,7 @@ class AppController(QObject):
         self.voxcpm_service: VoxCpmServiceManager | None = None
         self._last_tts_notice_key: str | None = None
         self._last_tts_notice_at = 0.0
+        self._tts_request_serial = 0
         self.card_popup: CardPopup | None = None
         self.barrage_popup: BarragePopup | None = None
 
@@ -339,6 +340,7 @@ class AppController(QObject):
         self._notify_hotkey_registration_errors()
 
         self.tts = self._create_tts_service()
+        self._bind_tts_signals(self.tts)
         self._schedule_tts_warm_up()
 
         self.scheduler = QtScheduler(
@@ -445,17 +447,12 @@ class AppController(QObject):
             return
 
         speech_text = self._tts_text_for_current_provider(text)
-        if self.tts.speak(speech_text, accent=self.settings.accent):
-            if self.study_store is not None:
-                self.study_store.record_word_pronounced(
-                    self.current_word.word,
-                    pronounced_at=datetime.now(UTC),
-                )
-            else:
-                self._update_progress(
-                    self.current_word.word,
-                    lambda progress: replace(progress, last_pronounced_at=_now_iso()),
-                )
+        if self.tts.provider is TtsProvider.VOXCPM_LOCAL:
+            request_tag = self._next_tts_request_tag()
+            if self.tts.speak(speech_text, accent=self.settings.accent, request_tag=request_tag):
+                return
+        elif self.tts.speak(speech_text, accent=self.settings.accent):
+            self._record_pronounced_word(self.current_word.word)
             return
 
         self._show_tts_status_notice(self._tts_failure_message(), state)
@@ -611,6 +608,16 @@ class AppController(QObject):
             on_error=self._log_warning_text,
         )
 
+    def _bind_tts_signals(self, service: PronunciationService | Any | None) -> None:
+        if service is None:
+            return
+        playback_started = getattr(service, "playback_started", None)
+        if playback_started is not None and hasattr(playback_started, "connect"):
+            playback_started.connect(self._on_tts_playback_started)
+        playback_failed = getattr(service, "playback_failed", None)
+        if playback_failed is not None and hasattr(playback_failed, "connect"):
+            playback_failed.connect(self._on_tts_playback_failed)
+
     def _create_voxcpm_service_manager(self) -> VoxCpmServiceManager:
         return VoxCpmServiceManager(
             install_root=Path(self.settings.voxcpm_install_root),
@@ -706,6 +713,7 @@ class AppController(QObject):
             if provider_changed:
                 self.tts.stop()
                 self.tts = self._create_tts_service()
+                self._bind_tts_signals(self.tts)
                 self._schedule_tts_warm_up()
             else:
                 self.tts.set_accent(self.settings.accent)
@@ -792,9 +800,6 @@ class AppController(QObject):
         ):
             return False
         if self.voxcpm_service.is_running():
-            return False
-        if self.voxcpm_service.health_check():
-            self._refresh_voxcpm_status_in_settings()
             return False
         if not self.voxcpm_service.is_installed():
             self._show_voxcpm_notice("VoxCPM 尚未安装，请在设置中后台安装后再使用。")
@@ -959,6 +964,37 @@ class AppController(QObject):
 
     def _log_warning_text(self, message: str) -> None:
         self._log_warning("%s", message)
+
+    def _next_tts_request_tag(self) -> tuple[int, str] | None:
+        if self.current_word is None:
+            return None
+        self._tts_request_serial += 1
+        return (self._tts_request_serial, self.current_word.word)
+
+    def _record_pronounced_word(self, word_key: str) -> None:
+        if self.study_store is not None:
+            self.study_store.record_word_pronounced(
+                word_key,
+                pronounced_at=datetime.now(UTC),
+            )
+            return
+        self._update_progress(
+            word_key,
+            lambda progress: replace(progress, last_pronounced_at=_now_iso()),
+        )
+
+    def _on_tts_playback_started(self, request_tag: object | None) -> None:
+        if not isinstance(request_tag, tuple) or len(request_tag) != 2:
+            return
+        _, word_key = request_tag
+        if not isinstance(word_key, str) or not word_key.strip():
+            return
+        self._record_pronounced_word(word_key)
+
+    def _on_tts_playback_failed(self, request_tag: object | None, message: str) -> None:
+        _ = request_tag
+        if self.tray is not None:
+            self.tray.show_message("oh my word", f"语音朗读失败：{message}")
 
     def _show_tts_status_notice(self, message: str | None, state: TtsInitializationState) -> None:
         if message is None or self.tray is None:

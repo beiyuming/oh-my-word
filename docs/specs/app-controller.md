@@ -26,9 +26,9 @@ controller 接收 `SchedulerAction`：
 
 当前弹窗支持以下动作：
 
-- 朗读：调用 TTS，成功后记录 `last_pronounced_at`。
+- 朗读：调用 TTS。`system_qt` 立即成功时记录 `last_pronounced_at`；`voxcpm_local` 走异步 Qt 网络/音频路径时，必须在实际播放开始回调后再记录 `last_pronounced_at`。
 - 当 TTS 仍处于 `not_initialized` / `initializing` 时，controller 不应阻塞等待 backend；应直接提示“语音正在初始化，请稍后”。
-- 当 TTS 处于 `unavailable` 或朗读失败时，controller 应通过托盘提示失败原因；同一初始化阶段的提示需要节流，避免重复刷屏。
+- 当 TTS 处于 `unavailable`、同步调用失败或异步播放失败时，controller 应通过托盘提示失败原因；同一初始化阶段的提示需要节流，避免重复刷屏。
 - 展开详情：切换可见弹窗详情，记录 `last_expanded_at`。
 - 标记掌握：记录 mastered 并关闭弹窗。
 - 认识/不认识：记录复习结果并关闭弹窗。

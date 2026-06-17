@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-APP_VERSION = "0.1.7"
+APP_VERSION = "0.1.8"
 
 
 @dataclass(slots=True, frozen=True)
@@ -14,6 +14,15 @@ class ChangelogEntry:
 
 
 CHANGELOG: tuple[ChangelogEntry, ...] = (
+    ChangelogEntry(
+        version="0.1.8",
+        date="2026-06-17",
+        changes=(
+            "VoxCPM 本地朗读改为 Qt 官方异步网络和音频播放链路，不再在主线程里阻塞等待 HTTP 响应或音频流。",
+            "点击朗读时不再先同步探测 /health；自动启动本地服务后，会等真正开始播放再记录 last_pronounced_at。",
+            "VoxCPM 异步播放失败现在会回传托盘提示，减少点击后调度前进但实际未播出的假成功状态。",
+        ),
+    ),
     ChangelogEntry(
         version="0.1.7",
         date="2026-06-14",

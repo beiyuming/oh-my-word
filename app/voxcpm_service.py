@@ -147,10 +147,6 @@ class VoxCpmServiceManager(QObject):
         return True
 
     def start_service(self) -> bool:
-        if self.health_check():
-            self._message = "VoxCPM 本地服务已在运行。"
-            self._emit_status()
-            return True
         if not self.is_installed():
             self._message = "VoxCPM 尚未安装。"
             self._emit_status()
