@@ -66,6 +66,21 @@ def test_voxcpm_local_installer_probes_available_python_runtimes() -> None:
     assert "Selected Python runtime" in script
 
 
+def test_voxcpm_local_installer_returns_flat_python_runtime_candidates() -> None:
+    script = (SERVICE_DIR / "install_local.ps1").read_text(encoding="utf-8")
+
+    assert "return ,$resolvedCandidates" not in script
+    assert "$pythonRuntimes = @(Resolve-PythonRuntime)" not in script
+    assert "$pythonRuntimes = Resolve-PythonRuntime" in script
+
+
+def test_voxcpm_local_installer_accepts_empty_python_runtime_arguments() -> None:
+    script = (SERVICE_DIR / "install_local.ps1").read_text(encoding="utf-8")
+
+    assert "[string[]]$Arguments = @()" in script
+    assert "[Parameter(Mandatory = $true)]`n        [string[]]$Arguments" not in script
+
+
 def test_voxcpm_local_installer_retries_next_python_runtime_when_venv_creation_fails() -> None:
     script = (SERVICE_DIR / "install_local.ps1").read_text(encoding="utf-8")
 

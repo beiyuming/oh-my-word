@@ -73,8 +73,7 @@ function Get-PythonRuntimeCandidate {
         [Parameter(Mandatory = $true)]
         [string]$FilePath,
 
-        [Parameter(Mandatory = $true)]
-        [string[]]$Arguments,
+        [string[]]$Arguments = @(),
 
         [Parameter(Mandatory = $true)]
         [string]$Label
@@ -149,7 +148,7 @@ function Resolve-PythonRuntime {
 
     $selected = $resolvedCandidates[0]
     Write-Host "Selected Python runtime: $($selected.Label) ($($selected.Version))"
-    return ,$resolvedCandidates
+    return $resolvedCandidates
 }
 
 function New-VenvWithFallback {
@@ -352,7 +351,7 @@ try {
     Write-Host "VoxCPM model cache: $modelCachePath"
 
     if (-not (Test-Path -LiteralPath $venvPython)) {
-        $pythonRuntimes = @(Resolve-PythonRuntime)
+        $pythonRuntimes = Resolve-PythonRuntime
         [void](New-VenvWithFallback -PythonRuntimes $pythonRuntimes)
     }
     else {

@@ -13,6 +13,8 @@ def test_changelog_mentions_current_and_prior_updates() -> None:
     assert "v0.1.9" in text
     assert "无法创建 venv" in text
     assert "失败原因" in text
+    assert "空参数数组" in text
+    assert "扁平数组" in text
     assert "v0.1.8" in text
     assert "Qt 官方异步网络和音频播放链路" in text
     assert "同步探测 /health" in text

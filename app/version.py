@@ -20,6 +20,8 @@ CHANGELOG: tuple[ChangelogEntry, ...] = (
         changes=(
             "VoxCPM 本地安装脚本在某个 Python 运行时无法创建 venv 时，会自动清理残留目录并继续尝试下一个兼容解释器。",
             "VoxCPM 安装日志现在会明确记录每个 Python 候选创建虚拟环境的失败原因，便于定位目标机器上的环境问题。",
+            "VoxCPM 安装脚本现在允许 python/python3 这类无额外参数的运行时候选正常探测，不再因空参数数组触发 PowerShell 参数绑定错误。",
+            "VoxCPM 安装脚本返回的 Python 候选列表已改为扁平数组，避免多解释器环境下把数组对象误传给 Invoke-Native -FilePath。",
         ),
     ),
     ChangelogEntry(

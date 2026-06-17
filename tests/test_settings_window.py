@@ -61,6 +61,8 @@ class SettingsDialogTtsTests(unittest.TestCase):
 
         self.assertIn(f"v{APP_VERSION}", dialog._version_label.text())
         self.assertIn("更新日志", dialog._changelog_view.toPlainText())
+        self.assertIn("v0.1.9", dialog._changelog_view.toPlainText())
+        self.assertIn("空参数数组", dialog._changelog_view.toPlainText())
         self.assertIn("v0.1.8", dialog._changelog_view.toPlainText())
         self.assertIn("Qt 官方异步网络和音频播放链路", dialog._changelog_view.toPlainText())
         self.assertIn("同步探测 /health", dialog._changelog_view.toPlainText())
