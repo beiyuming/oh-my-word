@@ -363,6 +363,7 @@ class AppController(QObject):
             self.settings_window.accepted.connect(self._save_settings_from_dialog)
             self.settings_window.import_wordbook_requested.connect(self.import_wordbook)
             self.settings_window.download_wordbook_requested.connect(self.download_recommended_wordbook)
+            self.settings_window.voxcpm_runtime_import_requested.connect(self.import_voxcpm_runtime_package)
             self.settings_window.voxcpm_install_requested.connect(self.install_voxcpm_from_settings)
             self.settings_window.voxcpm_start_requested.connect(self.start_voxcpm_service_from_settings)
             self.settings_window.voxcpm_stop_requested.connect(self.stop_voxcpm_service)
@@ -739,6 +740,26 @@ class AppController(QObject):
                 "VoxCPM 已开始后台安装。" if started else self.voxcpm_service.status().message,
             )
 
+    def import_voxcpm_runtime_package(self) -> None:
+        source, _ = QFileDialog.getOpenFileName(
+            self.settings_window,
+            "导入 VoxCPM 运行时包",
+            str(self._paths.root_dir),
+            "VoxCPM 运行时包 (*.zip)",
+        )
+        if not source:
+            return
+        self._apply_open_settings_dialog_values()
+        if self.voxcpm_service is None:
+            return
+        imported = self.voxcpm_service.import_runtime_package(Path(source))
+        self._refresh_voxcpm_status_in_settings()
+        if self.tray is not None:
+            self.tray.show_message(
+                "oh my word",
+                "VoxCPM 运行时包导入成功。" if imported else self.voxcpm_service.status().message,
+            )
+
     def start_voxcpm_service_from_settings(self) -> None:
         self._apply_open_settings_dialog_values()
         if self.voxcpm_service is None:
@@ -802,7 +823,9 @@ class AppController(QObject):
         if self.voxcpm_service.is_running():
             return False
         if not self.voxcpm_service.is_installed():
-            self._show_voxcpm_notice("VoxCPM 尚未安装，请在设置中后台安装后再使用。")
+            self._show_voxcpm_notice(
+                "VoxCPM 尚未就绪，请先在设置中导入运行时包，或使用后台安装 / 更新作为兼容方案。"
+            )
             self._refresh_voxcpm_status_in_settings()
             return True
 

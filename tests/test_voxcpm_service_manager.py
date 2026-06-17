@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import unittest
+import zipfile
+import hashlib
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -45,7 +47,93 @@ class _FakeResponse:
         return json.dumps(self._payload).encode("utf-8")
 
 
+def _sha256_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _write_runtime_package(zip_path: Path) -> None:
+    python_payload = b"python-runtime"
+    start_payload = b"start-service"
+    health_payload = b"health-check"
+    service_payload = b"service-code"
+    model_payload = b"model-payload"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr(
+            "manifest.json",
+            json.dumps(
+                {
+                    "runtime_id": "voxcpm2-runtime-win-x64-cu124-r1",
+                    "runtime_version": "r1",
+                    "target_os": "windows",
+                    "target_arch": "x64",
+                    "cuda_tag": "cu124",
+                    "min_driver_version": "551.00",
+                    "python_version": "3.11.9",
+                    "torch_version": "2.6.0",
+                    "model_id": "openbmb/VoxCPM2",
+                    "model_version": "2026-06-18",
+                    "expected_layout_version": 1,
+                    "package_size": 1024,
+                    "file_hashes": {
+                        "runtime/.venv/Scripts/python.exe": _sha256_bytes(python_payload),
+                        "runtime/start_service.ps1": _sha256_bytes(start_payload),
+                        "runtime/healthcheck.ps1": _sha256_bytes(health_payload),
+                        "runtime/service/server.py": _sha256_bytes(service_payload),
+                        "runtime/models/model.safetensors": _sha256_bytes(model_payload),
+                    },
+                    "built_at": "2026-06-18T12:00:00Z",
+                }
+            ),
+        )
+        archive.writestr("runtime/.venv/Scripts/python.exe", python_payload)
+        archive.writestr("runtime/start_service.ps1", start_payload)
+        archive.writestr("runtime/healthcheck.ps1", health_payload)
+        archive.writestr("runtime/service/server.py", service_payload)
+        archive.writestr("runtime/models/model.safetensors", model_payload)
+
+
 class VoxCpmServiceManagerTests(unittest.TestCase):
+    def test_detects_runtime_installation_from_imported_runtime_manifest(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            install_root = Path(tmp_dir) / "voxcpm"
+            (install_root / ".venv" / "Scripts").mkdir(parents=True)
+            (install_root / ".venv" / "Scripts" / "python.exe").write_text("", encoding="utf-8")
+            (install_root / "start_service.ps1").write_text("", encoding="utf-8")
+            (install_root / "runtime_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "runtime_id": "voxcpm2-runtime-win-x64-cu124-r1",
+                        "runtime_version": "r1",
+                        "target_os": "windows",
+                        "target_arch": "x64",
+                        "cuda_tag": "cu124",
+                        "min_driver_version": "551.00",
+                        "python_version": "3.11.9",
+                        "torch_version": "2.6.0",
+                        "model_id": "openbmb/VoxCPM2",
+                        "model_version": "2026-06-18",
+                        "expected_layout_version": 1,
+                        "package_size": 1024,
+                        "file_hashes": {},
+                        "built_at": "2026-06-18T12:00:00Z",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            manager = VoxCpmServiceManager(
+                install_root=install_root,
+                model_cache_root=install_root / "models",
+                script_root=Path(tmp_dir) / "scripts",
+            )
+
+            status = manager.status()
+
+        self.assertTrue(status.installed)
+        self.assertEqual(status.runtime_state, "imported")
+        self.assertEqual(status.runtime_id, "voxcpm2-runtime-win-x64-cu124-r1")
+        self.assertEqual(status.cuda_tag, "cu124")
+
     def test_detects_installation_from_python_and_start_script(self) -> None:
         with TemporaryDirectory() as tmp_dir:
             install_root = Path(tmp_dir) / "voxcpm"
@@ -61,6 +149,24 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
 
             self.assertTrue(manager.is_installed())
             self.assertTrue(manager.status().installed)
+
+    def test_reports_legacy_install_when_manifest_is_missing(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            install_root = Path(tmp_dir) / "voxcpm"
+            (install_root / ".venv" / "Scripts").mkdir(parents=True)
+            (install_root / ".venv" / "Scripts" / "python.exe").write_text("", encoding="utf-8")
+            (install_root / "start_service.ps1").write_text("", encoding="utf-8")
+
+            manager = VoxCpmServiceManager(
+                install_root=install_root,
+                model_cache_root=install_root / "models",
+                script_root=Path(tmp_dir) / "scripts",
+            )
+
+            status = manager.status()
+
+        self.assertTrue(status.installed)
+        self.assertEqual(status.runtime_state, "legacy")
 
     def test_background_install_creates_directories_and_builds_command(self) -> None:
         captured: dict[str, Any] = {}
@@ -252,3 +358,66 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
 
             self.assertTrue(manager.health_check())
             self.assertTrue(manager.status().running)
+
+    def test_import_runtime_package_extracts_to_staging_and_promotes_runtime(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            zip_path = root / "runtime.zip"
+            _write_runtime_package(zip_path)
+            install_root = root / "voxcpm"
+
+            manager = VoxCpmServiceManager(
+                install_root=install_root,
+                model_cache_root=install_root / "models",
+                script_root=root / "scripts",
+                environment_probe=lambda: {
+                    "target_os": "windows",
+                    "target_arch": "x64",
+                    "has_nvidia_gpu": True,
+                    "driver_version": "552.12",
+                    "free_bytes": 10_000_000,
+                },
+                runtime_healthcheck_runner=lambda _runtime_root: (True, "ok"),
+            )
+
+            self.assertTrue(manager.import_runtime_package(zip_path))
+
+            status = manager.status()
+            self.assertTrue(status.installed)
+            self.assertEqual(status.runtime_state, "imported")
+            self.assertEqual(status.runtime_id, "voxcpm2-runtime-win-x64-cu124-r1")
+            self.assertTrue((install_root / ".venv" / "Scripts" / "python.exe").exists())
+            self.assertTrue((install_root / "runtime_manifest.json").exists())
+
+    def test_import_runtime_package_restores_backup_when_activation_fails(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            zip_path = root / "runtime.zip"
+            _write_runtime_package(zip_path)
+            install_root = root / "voxcpm"
+            (install_root / ".venv" / "Scripts").mkdir(parents=True)
+            legacy_python = install_root / ".venv" / "Scripts" / "python.exe"
+            legacy_python.write_text("legacy", encoding="utf-8")
+            (install_root / "start_service.ps1").write_text("legacy-start", encoding="utf-8")
+
+            manager = VoxCpmServiceManager(
+                install_root=install_root,
+                model_cache_root=install_root / "models",
+                script_root=root / "scripts",
+                environment_probe=lambda: {
+                    "target_os": "windows",
+                    "target_arch": "x64",
+                    "has_nvidia_gpu": True,
+                    "driver_version": "552.12",
+                    "free_bytes": 10_000_000,
+                },
+                runtime_healthcheck_runner=lambda _runtime_root: (False, "healthcheck failed"),
+            )
+
+            self.assertFalse(manager.import_runtime_package(zip_path))
+
+            status = manager.status()
+            self.assertTrue(legacy_python.exists())
+            self.assertTrue(status.installed)
+            self.assertEqual(status.runtime_state, "legacy")
+            self.assertIn("healthcheck failed", status.message)

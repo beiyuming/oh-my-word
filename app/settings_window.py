@@ -148,6 +148,7 @@ class HotkeyCaptureButton(QPushButton):
 class SettingsDialog(QDialog):
     import_wordbook_requested = Signal()
     download_wordbook_requested = Signal()
+    voxcpm_runtime_import_requested = Signal()
     voxcpm_install_requested = Signal()
     voxcpm_start_requested = Signal()
     voxcpm_stop_requested = Signal()
@@ -177,8 +178,10 @@ class SettingsDialog(QDialog):
         self._voxcpm_auto_start = QCheckBox(self)
         self._voxcpm_voice_prompt = QLineEdit(self)
         self._voxcpm_install_status = QLabel("未检测", self)
+        self._voxcpm_runtime_meta = QLabel("", self)
         self._voxcpm_service_status = QLabel("未检测", self)
         self._voxcpm_message = QLabel("", self)
+        self._voxcpm_runtime_button = QPushButton("导入 VoxCPM 运行时包", self)
         self._voxcpm_install_button = QPushButton("后台安装 / 更新", self)
         self._voxcpm_start_button = QPushButton("启动服务", self)
         self._voxcpm_stop_button = QPushButton("停止服务", self)
@@ -227,6 +230,7 @@ class SettingsDialog(QDialog):
         self._voxcpm_auto_start.toggled.connect(lambda _: self._refresh_toggle_labels())
         self._import_wordbook_button.clicked.connect(self.import_wordbook_requested.emit)
         self._download_wordbook_button.clicked.connect(self.download_wordbook_requested.emit)
+        self._voxcpm_runtime_button.clicked.connect(self.voxcpm_runtime_import_requested.emit)
         self._voxcpm_install_button.clicked.connect(self.voxcpm_install_requested.emit)
         self._voxcpm_start_button.clicked.connect(self.voxcpm_start_requested.emit)
         self._voxcpm_stop_button.clicked.connect(self.voxcpm_stop_requested.emit)
@@ -366,6 +370,7 @@ class SettingsDialog(QDialog):
         self._voxcpm_stream_prebuffer.setSuffix(" 秒")
 
         self._voxcpm_message.setWordWrap(True)
+        self._voxcpm_runtime_meta.setWordWrap(True)
         self._tabs.addTab(self._build_learning_tab(), "学习")
         self._tabs.addTab(self._build_display_tab(), "显示")
         self._tabs.addTab(self._build_pronunciation_tab(), "发音")
@@ -419,6 +424,7 @@ class SettingsDialog(QDialog):
 
         status_form = QFormLayout()
         status_form.addRow("安装状态", self._voxcpm_install_status)
+        status_form.addRow("运行时信息", self._voxcpm_runtime_meta)
         status_form.addRow("服务状态", self._voxcpm_service_status)
         status_form.addRow("状态信息", self._voxcpm_message)
         service_layout.addLayout(status_form)
@@ -439,6 +445,7 @@ class SettingsDialog(QDialog):
         service_layout.addLayout(settings_form)
 
         action_row = QHBoxLayout()
+        action_row.addWidget(self._voxcpm_runtime_button)
         action_row.addWidget(self._voxcpm_install_button)
         action_row.addWidget(self._voxcpm_start_button)
         action_row.addWidget(self._voxcpm_stop_button)
@@ -506,10 +513,38 @@ class SettingsDialog(QDialog):
         installing = bool(getattr(status, "installing", False))
         message = str(getattr(status, "message", "") or "")
         log_path = getattr(status, "log_path", None)
+        runtime_state = str(getattr(status, "runtime_state", "") or "")
+        runtime_id = str(getattr(status, "runtime_id", "") or "")
+        cuda_tag = str(getattr(status, "cuda_tag", "") or "")
+        min_driver_version = str(getattr(status, "min_driver_version", "") or "")
+        model_version = str(getattr(status, "model_version", "") or "")
 
-        self._voxcpm_install_status.setText("安装中" if installing else ("已安装" if installed else "未安装"))
+        if installing:
+            install_status = "安装中"
+        elif runtime_state == "imported":
+            install_status = "已导入"
+        elif runtime_state == "legacy":
+            install_status = "已安装（旧版）"
+        elif runtime_state == "broken":
+            install_status = "损坏"
+        else:
+            install_status = "未导入" if not installed else "已安装"
+
+        runtime_meta_parts = []
+        if runtime_id:
+            runtime_meta_parts.append(f"ID: {runtime_id}")
+        if cuda_tag:
+            runtime_meta_parts.append(f"CUDA: {cuda_tag}")
+        if min_driver_version:
+            runtime_meta_parts.append(f"最低驱动: {min_driver_version}")
+        if model_version:
+            runtime_meta_parts.append(f"模型: {model_version}")
+
+        self._voxcpm_install_status.setText(install_status)
+        self._voxcpm_runtime_meta.setText(" | ".join(runtime_meta_parts))
         self._voxcpm_service_status.setText("运行中" if running else "未运行")
         self._voxcpm_message.setText(message or (f"日志：{log_path}" if log_path else ""))
+        self._voxcpm_runtime_button.setEnabled(not installing)
         self._voxcpm_install_button.setEnabled(not installing)
         self._voxcpm_start_button.setEnabled(installed and not running and not installing)
         self._voxcpm_stop_button.setEnabled(running)

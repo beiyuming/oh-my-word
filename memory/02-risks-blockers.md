@@ -60,6 +60,18 @@
 - 影响：同一轮发布里首次一键打包可能偶发失败，即使 portable 产物本身已经构建成功。
 - 处理：本轮通过复用已生成的 portable 产物执行 `.\build\build_installer.ps1 -SkipPortableBuild` 成功绕过。后续若继续复现，应给安装器脚本增加 zip 重试或文件锁等待逻辑，而不是把这类瞬时失败当成真正的构建失败。
 
+### 10. 已发布的 v0.1.9 安装器资产仍缺少最新两次 Python runtime 修复
+
+- 风险：当前远端 `v0.1.9` Release/安装器资产是在修复 `Get-PythonRuntimeCandidate` 空参数数组绑定错误，以及 `Resolve-PythonRuntime`/调用端双重数组包装错误之前构建的；本地最新 `dist\oh-my-word-setup-v0.1.9.exe` 已包含这两次修复，但尚未覆盖远端 `.9` 资产。
+- 影响：目标机器既可能在探测 `python` / `python3` 候选时命中 `Arguments` 为空数组的 PowerShell 绑定异常，也可能在探测到多个 Python 候选时把数组对象误传给 `Invoke-Native -FilePath`，出现 `Using Python runtime: py -3.11 py -3 python` 这类异常日志。
+- 处理：在用户确认本轮修复完成并决定如何处理现有 `v0.1.9` Release 前，不要再递增版本号；后续覆盖现有 `.9` 资产时，要基于本地最新打包结果执行受控提交/推送/更新 tag 或 release asset，并明确说明远端旧资产曾包含哪两类安装脚本缺陷。
+
+### 11. VoxCPM2 运行时导入已接入主应用，但官方 runtime zip 资产与构建流程尚未在仓库内落地
+
+- 风险：桌面端已经把 `导入 VoxCPM 运行时包` 作为首选入口，并按 Windows 10/11 x64 + NVIDIA GPU + 最低驱动矩阵校验 zip；但仓库里还没有受控的 runtime zip 产物构建脚本、校验清单生成流程，当前也没有随本轮提交自动产出 `voxcpm2-runtime-win-x64-cu124-r1.zip` 这类资产。
+- 影响：即使主应用安装包已发布，最终用户仍需要另行拿到匹配的 GitHub Release runtime zip 才能走首选路径；如果只发布主安装器、不发布 runtime zip，用户仍会退回到 `后台安装 / 更新` 这条更依赖本机环境的兼容路径。
+- 处理：后续若继续完善该方向，需要补 runtime zip 的构建/校验/发布流程，或者至少在 Release 说明中明确“当前安装包已支持导入，但本轮未附带官方 runtime zip 资产”。
+
 ## 普通不确定性
 
 - 仓库还没有为每个领域建立专用 spec。只有在契约变化或未来 agent 确实需要时，才新增聚焦 spec。

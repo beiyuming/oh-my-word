@@ -3,13 +3,17 @@ from __future__ import annotations
 from app.version import APP_VERSION, CHANGELOG, formatted_changelog
 
 
-def test_current_version_is_0_1_9() -> None:
-    assert APP_VERSION == "0.1.9"
+def test_current_version_is_0_1_10() -> None:
+    assert APP_VERSION == "0.1.10"
 
 
 def test_changelog_mentions_current_and_prior_updates() -> None:
     text = formatted_changelog()
 
+    assert "v0.1.10" in text
+    assert "导入 VoxCPM 运行时包" in text
+    assert "GitHub Release" in text
+    assert "兼容/兜底" in text
     assert "v0.1.9" in text
     assert "无法创建 venv" in text
     assert "失败原因" in text
@@ -43,4 +47,4 @@ def test_changelog_mentions_current_and_prior_updates() -> None:
     assert "安装包文件名带版本号" in text
     assert "VoxCPM" in text
     assert "流式" in text
-    assert CHANGELOG[0].version == "0.1.9"
+    assert CHANGELOG[0].version == "0.1.10"

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import platform
+import shutil
 import subprocess
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -11,6 +13,17 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from PySide6.QtCore import QObject, Signal
+
+from .voxcpm_runtime import (
+    RUNTIME_MANIFEST_FILENAME,
+    VoxCpmRuntimeManifest,
+    extract_runtime_zip_to_staging,
+    load_runtime_manifest_from_path,
+    load_runtime_manifest_from_zip,
+    validate_runtime_environment,
+    validate_runtime_zip_layout,
+    write_runtime_manifest,
+)
 
 
 ProcessFactory = Callable[..., Any]
@@ -32,6 +45,11 @@ class VoxCpmServiceStatus:
     installing: bool
     message: str
     log_path: Path
+    runtime_state: str = "missing"
+    runtime_id: str = ""
+    cuda_tag: str = ""
+    min_driver_version: str = ""
+    model_version: str = ""
 
 
 class VoxCpmServiceManager(QObject):
@@ -49,6 +67,8 @@ class VoxCpmServiceManager(QObject):
         urlopen_func: UrlopenFunc | None = None,
         endpoint_process_finder: EndpointProcessFinder | None = None,
         process_terminator: ProcessTerminator | None = None,
+        environment_probe: Callable[[], dict[str, object]] | None = None,
+        runtime_healthcheck_runner: Callable[[Path], tuple[bool, str]] | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
@@ -61,6 +81,8 @@ class VoxCpmServiceManager(QObject):
         self._urlopen = urlopen_func or urlopen
         self._endpoint_process_finder = endpoint_process_finder or self._find_endpoint_processes
         self._process_terminator = process_terminator or self._terminate_process_tree
+        self._environment_probe = environment_probe or self._probe_runtime_environment
+        self._runtime_healthcheck_runner = runtime_healthcheck_runner or self._run_runtime_healthcheck
         self._install_process: Any | None = None
         self._service_process: Any | None = None
         self._install_log_handle: IO[str] | None = None
@@ -101,12 +123,18 @@ class VoxCpmServiceManager(QObject):
     def status(self) -> VoxCpmServiceStatus:
         if self._install_process is not None and self._install_process.poll() is not None:
             self._close_install_log()
+        runtime_state, runtime_manifest = self._detect_runtime_metadata()
         return VoxCpmServiceStatus(
             installed=self.is_installed(),
             running=self.is_running(),
             installing=self.is_installing(),
             message=self._message,
             log_path=self.log_path,
+            runtime_state=runtime_state,
+            runtime_id=runtime_manifest.runtime_id if runtime_manifest is not None else "",
+            cuda_tag=runtime_manifest.cuda_tag if runtime_manifest is not None else "",
+            min_driver_version=runtime_manifest.min_driver_version if runtime_manifest is not None else "",
+            model_version=runtime_manifest.model_version if runtime_manifest is not None else "",
         )
 
     def install_async(self) -> bool:
@@ -143,6 +171,70 @@ class VoxCpmServiceManager(QObject):
         with self.log_path.open("a", encoding="utf-8") as log_handle:
             self._install_process = self._spawn(args, cwd=self._script_root, stdout=log_handle)
         self._message = "VoxCPM 已开始后台安装。"
+        self._emit_status()
+        return True
+
+    def import_runtime_package(self, package_path: Path) -> bool:
+        if self.is_installing():
+            self._message = "VoxCPM 正在安装中。"
+            self._emit_status()
+            return False
+        if self.is_running():
+            self._message = "请先停止当前 VoxCPM 服务，再导入运行时包。"
+            self._emit_status()
+            return False
+
+        try:
+            manifest = load_runtime_manifest_from_zip(package_path)
+            layout_result = validate_runtime_zip_layout(package_path, manifest)
+            if not layout_result.ok:
+                self._message = layout_result.message
+                self._emit_status()
+                return False
+
+            environment_result = validate_runtime_environment(manifest, self._environment_probe())
+            if not environment_result.ok:
+                self._message = environment_result.message
+                self._emit_status()
+                return False
+
+            install_parent = self._install_root.parent
+            install_parent.mkdir(parents=True, exist_ok=True)
+            staging_root = install_parent / f"{self._install_root.name}.import-staging"
+            if staging_root.exists():
+                shutil.rmtree(staging_root)
+            runtime_root = extract_runtime_zip_to_staging(package_path, staging_root)
+            write_runtime_manifest(runtime_root, manifest)
+
+            health_ok, health_message = self._runtime_healthcheck_runner(runtime_root)
+            if not health_ok:
+                shutil.rmtree(staging_root, ignore_errors=True)
+                self._message = health_message or "VoxCPM 运行时自检失败。"
+                self._emit_status()
+                return False
+
+            backup_root = install_parent / f"{self._install_root.name}.backup"
+            if backup_root.exists():
+                shutil.rmtree(backup_root, ignore_errors=True)
+            if self._install_root.exists():
+                self._install_root.rename(backup_root)
+            try:
+                runtime_root.rename(self._install_root)
+                shutil.rmtree(staging_root, ignore_errors=True)
+            except Exception:
+                if self._install_root.exists():
+                    shutil.rmtree(self._install_root, ignore_errors=True)
+                if backup_root.exists():
+                    backup_root.rename(self._install_root)
+                shutil.rmtree(staging_root, ignore_errors=True)
+                raise
+
+        except Exception as exc:
+            self._message = f"导入 VoxCPM 运行时包失败：{exc}"
+            self._emit_status()
+            return False
+
+        self._message = f"已导入 VoxCPM 运行时包：{manifest.runtime_id}"
         self._emit_status()
         return True
 
@@ -340,6 +432,73 @@ class VoxCpmServiceManager(QObject):
             )
             return
         os.kill(pid, 15)
+
+    def _runtime_manifest_path(self) -> Path:
+        return self._install_root / RUNTIME_MANIFEST_FILENAME
+
+    def _detect_runtime_metadata(self) -> tuple[str, VoxCpmRuntimeManifest | None]:
+        manifest_path = self._runtime_manifest_path()
+        if manifest_path.exists():
+            try:
+                return "imported", load_runtime_manifest_from_path(manifest_path)
+            except Exception:
+                return "broken", None
+        if self.is_installed():
+            return "legacy", None
+        return "missing", None
+
+    def _probe_runtime_environment(self) -> dict[str, object]:
+        driver_version = ""
+        has_nvidia_gpu = False
+        try:
+            result = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=driver_version",
+                    "--format=csv,noheader",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                check=False,
+            )
+            driver_version = (result.stdout.splitlines() or [""])[0].strip()
+            has_nvidia_gpu = bool(driver_version)
+        except Exception:
+            driver_version = ""
+            has_nvidia_gpu = False
+
+        disk_target = self._install_root.parent if self._install_root.parent.exists() else Path.cwd()
+        free_bytes = shutil.disk_usage(disk_target).free
+        return {
+            "target_os": platform.system().lower(),
+            "target_arch": "x64" if "64" in platform.machine().lower() else platform.machine().lower(),
+            "has_nvidia_gpu": has_nvidia_gpu,
+            "driver_version": driver_version,
+            "free_bytes": free_bytes,
+        }
+
+    def _run_runtime_healthcheck(self, runtime_root: Path) -> tuple[bool, str]:
+        script_path = runtime_root / "healthcheck.ps1"
+        if not script_path.exists():
+            return False, f"运行时缺少健康检查脚本：{script_path}"
+        kwargs: dict[str, Any] = {
+            "cwd": runtime_root,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.STDOUT,
+            "text": True,
+            "check": False,
+        }
+        if hasattr(subprocess, "CREATE_NO_WINDOW"):
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script_path)],
+            **kwargs,
+        )
+        output = (result.stdout or "").strip()
+        if result.returncode == 0:
+            return True, output or "ok"
+        return False, output or "VoxCPM 运行时自检失败。"
 
     def _python_executable(self) -> Path:
         return self._install_root / ".venv" / "Scripts" / "python.exe"

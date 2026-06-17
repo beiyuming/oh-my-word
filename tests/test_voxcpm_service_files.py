@@ -434,7 +434,14 @@ def test_stable_docs_describe_voxcpm_provider_contract() -> None:
     assert "使用时自动启动" in tts_spec
     assert "不静默下载" in tts_spec
     assert "VoxCPM 本地" in readme
-    assert "后台安装" in readme
+    assert "导入 VoxCPM 运行时包" in readme
+    assert "GitHub Release" in readme
+    assert "Windows 10/11 x64" in readme
+    assert "NVIDIA GPU" in readme
+    assert "8 GB+ VRAM" in readme
+    assert "15 GB+" in readme
+    assert "后台安装 / 更新" in readme
+    assert "兼容" in readme
     assert "使用时自动启动" in readme
     assert "默认关闭" in packaging_spec
     assert "ModelCacheRoot" in packaging_spec
@@ -444,6 +451,11 @@ def test_stable_docs_describe_voxcpm_provider_contract() -> None:
     assert "运行中的旧应用" in packaging_spec
     assert "可写" in packaging_spec
     assert "service-only" in readme
+    assert "voxcpm2-runtime-win-x64-cu124-r1.zip" in packaging_spec
+    assert "runtime package" in packaging_spec or "运行时包" in packaging_spec
+    assert "GitHub Release" in packaging_spec
+    assert "兼容/兜底" in packaging_spec
+    assert "导入运行时包" in tts_spec
     assert "install_local.ps1" in packaging_spec
     assert "server.py" in packaging_spec
     assert "engine.py" in packaging_spec

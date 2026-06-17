@@ -392,7 +392,7 @@ class ControllerPopupActionTests(unittest.TestCase):
         controller.tts.speak.assert_not_called()
         controller.tray.show_message.assert_called_once_with(
             "oh my word",
-            "VoxCPM 尚未安装，请在设置中后台安装后再使用。",
+            "VoxCPM 尚未就绪，请先在设置中导入运行时包，或使用后台安装 / 更新作为兼容方案。",
         )
 
     def test_pronounce_text_uses_voxcpm_when_service_is_running(self) -> None:
@@ -500,6 +500,28 @@ class ControllerPopupActionTests(unittest.TestCase):
         )
         controller.voxcpm_service.health_check.assert_called_once_with()
         controller.tray.show_message.assert_called_once_with("oh my word", "VoxCPM 服务未响应。")
+
+    def test_import_voxcpm_runtime_package_uses_file_dialog_and_manager(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings()
+        controller.settings_store = Mock()
+        controller.settings_window = Mock()
+        current_settings = AppSettings(
+            voxcpm_install_root="D:\\OhMyWord\\tts\\voxcpm",
+            voxcpm_model_cache_root="D:\\OhMyWord\\tts\\voxcpm\\models",
+        )
+        controller.settings_window.get_settings.return_value = current_settings
+        controller.settings_store.save.return_value = current_settings
+        controller.tray = Mock()
+        controller.voxcpm_service = Mock()
+        controller.voxcpm_service.import_runtime_package.return_value = True
+
+        with patch("app.controller.QFileDialog.getOpenFileName", return_value=("D:\\Downloads\\runtime.zip", "zip")):
+            controller.import_voxcpm_runtime_package()
+
+        controller.settings_store.save.assert_called_once_with(current_settings)
+        controller.voxcpm_service.import_runtime_package.assert_called_once_with(Path("D:\\Downloads\\runtime.zip"))
+        controller.tray.show_message.assert_called_once_with("oh my word", "VoxCPM 运行时包导入成功。")
 
     def test_create_tts_service_passes_voxcpm_stream_prebuffer_seconds(self) -> None:
         controller = AppController(self.app)

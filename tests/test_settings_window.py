@@ -61,6 +61,8 @@ class SettingsDialogTtsTests(unittest.TestCase):
 
         self.assertIn(f"v{APP_VERSION}", dialog._version_label.text())
         self.assertIn("更新日志", dialog._changelog_view.toPlainText())
+        self.assertIn("v0.1.10", dialog._changelog_view.toPlainText())
+        self.assertIn("导入 VoxCPM 运行时包", dialog._changelog_view.toPlainText())
         self.assertIn("v0.1.9", dialog._changelog_view.toPlainText())
         self.assertIn("空参数数组", dialog._changelog_view.toPlainText())
         self.assertIn("v0.1.8", dialog._changelog_view.toPlainText())
@@ -75,16 +77,46 @@ class SettingsDialogTtsTests(unittest.TestCase):
         dialog = SettingsDialog(AppSettings())
         self.addCleanup(dialog.close)
         emitted: list[str] = []
+        dialog.voxcpm_runtime_import_requested.connect(lambda: emitted.append("runtime"))
         dialog.voxcpm_install_requested.connect(lambda: emitted.append("install"))
         dialog.voxcpm_start_requested.connect(lambda: emitted.append("start"))
         dialog.voxcpm_stop_requested.connect(lambda: emitted.append("stop"))
         dialog.voxcpm_health_check_requested.connect(lambda: emitted.append("check"))
         dialog.voxcpm_open_log_requested.connect(lambda: emitted.append("log"))
 
+        dialog._voxcpm_runtime_button.click()
         dialog._voxcpm_install_button.click()
         dialog._voxcpm_start_button.click()
         dialog._voxcpm_stop_button.click()
         dialog._voxcpm_check_button.click()
         dialog._voxcpm_open_log_button.click()
 
-        self.assertEqual(emitted, ["install", "start", "stop", "check", "log"])
+        self.assertEqual(emitted, ["runtime", "install", "start", "stop", "check", "log"])
+
+    def test_set_voxcpm_status_shows_runtime_metadata(self) -> None:
+        dialog = SettingsDialog(AppSettings())
+        self.addCleanup(dialog.close)
+
+        status = type(
+            "Status",
+            (),
+            {
+                "installed": True,
+                "running": False,
+                "installing": False,
+                "message": "已导入运行时包。",
+                "log_path": "D:\\OhMyWord\\tts\\voxcpm\\install.log",
+                "runtime_state": "imported",
+                "runtime_id": "voxcpm2-runtime-win-x64-cu124-r1",
+                "cuda_tag": "cu124",
+                "min_driver_version": "551.00",
+                "model_version": "2026-06-18",
+            },
+        )()
+
+        dialog.set_voxcpm_status(status)
+
+        self.assertIn("已导入", dialog._voxcpm_install_status.text())
+        self.assertIn("voxcpm2-runtime-win-x64-cu124-r1", dialog._voxcpm_runtime_meta.text())
+        self.assertIn("cu124", dialog._voxcpm_runtime_meta.text())
+        self.assertIn("551.00", dialog._voxcpm_runtime_meta.text())

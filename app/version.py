@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-APP_VERSION = "0.1.9"
+APP_VERSION = "0.1.10"
 
 
 @dataclass(slots=True, frozen=True)
@@ -14,6 +14,15 @@ class ChangelogEntry:
 
 
 CHANGELOG: tuple[ChangelogEntry, ...] = (
+    ChangelogEntry(
+        version="0.1.10",
+        date="2026-06-18",
+        changes=(
+            "设置页新增“导入 VoxCPM 运行时包”，普通用户现在可以直接导入 GitHub Release 发布的预构建 VoxCPM2 runtime zip。",
+            "VoxCPM 运行时状态区会显示 runtime ID、CUDA 标签、最低驱动要求和模型版本，便于确认当前机器与运行时矩阵是否匹配。",
+            "README 和稳定 spec 已改为以运行时包为首选路径，旧的后台安装 / 更新保留为兼容/兜底方案，并明确 Windows 10/11 x64、NVIDIA GPU、8 GB+ VRAM 和 15 GB+ 磁盘空间建议。",
+        ),
+    ),
     ChangelogEntry(
         version="0.1.9",
         date="2026-06-17",
