@@ -451,7 +451,7 @@ def test_stable_docs_describe_voxcpm_provider_contract() -> None:
     assert "运行中的旧应用" in packaging_spec
     assert "可写" in packaging_spec
     assert "service-only" in readme
-    assert "voxcpm2-runtime-win-x64-cu124-r1.zip" in packaging_spec
+    assert "voxcpm2-runtime-win-x64-cu130-r1.zip" in packaging_spec
     assert "runtime package" in packaging_spec or "运行时包" in packaging_spec
     assert "GitHub Release" in packaging_spec
     assert "兼容/兜底" in packaging_spec

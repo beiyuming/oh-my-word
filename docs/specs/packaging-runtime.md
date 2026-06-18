@@ -56,7 +56,7 @@ py -3.11 -m pytest tests -q
 
 安装包默认输出为带版本号的文件名，例如 `dist/oh-my-word-setup-v0.1.10.exe`。版本号必须来自代码内单一版本源，并同步显示在安装器窗口标题/主标题和设置页关于/更新日志中；后续每次重新打包发布都必须递增或明确维护版本号和更新日志。安装器由 build 脚本生成 C# WinForms 程序并用系统 `csc.exe` 编译，必须允许用户选择安装目录，并提供桌面快捷方式、开始菜单快捷方式和安装完成后启动应用的选项。
 
-当产品采用预构建 VoxCPM2 运行时时，同一 GitHub Release 还应发布与环境矩阵绑定的运行时包附件，例如 `voxcpm2-runtime-win-x64-cu124-r1.zip`、对应 checksum 文件和运行说明。主应用安装器与 runtime package/运行时包分开发布：安装器负责桌面应用本体，运行时包负责 Windows 10/11 x64 + NVIDIA GPU 的受支持 VoxCPM2 本地运行时矩阵。
+当产品采用预构建 VoxCPM2 运行时时，主应用安装器与 runtime package/运行时包分开发布：GitHub Release 负责主安装器与说明文件，ModelScope 负责与环境矩阵绑定的运行时包、模型包和对应 checksum 文件，例如 `voxcpm2-runtime-win-x64-cu130-r1.zip` 与 `voxcpm2-model-cu130-r1.zip`。主应用安装器负责桌面应用本体，运行时包与模型包负责 Windows 10/11 x64 + NVIDIA GPU 的受支持 VoxCPM2 本地运行时矩阵。
 
 每次“更新并重新打包安装包”完成后，发布流程必须执行一次 Git 提交、推送到 GitHub、创建同版本 tag，并创建 GitHub Release。提交前必须完成对应验证，并只暂存本次发布相关的源码、测试、文档、版本号、更新日志和打包脚本；不得因工作区已有 dirty 状态而把无关文件带入提交。生成的 `dist/` 安装包和 portable payload 默认仍是构建产物，不进入 Git 提交；只有用户明确要求跟踪某个发布产物时才可以暂存。提交信息应包含版本号，例如 `release: v0.1.10`；tag 应使用同一版本号，例如 `v0.1.10`。
 
@@ -66,7 +66,7 @@ py -3.11 -m pytest tests -q
 
 安装器可以提供 `Install local VoxCPM pronunciation engine` 可选项，但该选项必须默认关闭。VoxCPM 本地设置只作为安装后的可选 companion process 部署步骤运行，默认目标目录为主程序安装目录下的 `tts\voxcpm`，模型缓存目录默认为 `tts\voxcpm\models`；安装器必须允许用户选择 VoxCPM engine 目录和模型缓存目录，并在主程序安装目录变化时同步更新未手动改过的 VoxCPM 默认目录。脚本通过 `ModelCacheRoot` 传给 `install_local.ps1`。安装器必须提供 `Use model download mirror` 选项并默认启用；镜像模式必须优先使用 ModelScope，失败时回退到 hf-mirror；用户关闭该选项时才直连 Hugging Face。脚本必须据此设置 `HF_HOME` 和 `HF_HUB_CACHE`，不要依赖或污染全局 Hugging Face 默认缓存目录。安装器启动 VoxCPM setup 前必须预检这些目录并在父级可写时自动创建；如果无法创建，应提示用户选择可写位置。安装器运行 VoxCPM setup 时必须捕获 PowerShell stdout/stderr 到 bootstrap log；即使 `install.log` 未生成，也应给出可查看的诊断日志路径。该步骤可以创建独立 venv、安装 service-only requirements 并检查模型，但不得把 VoxCPM、PyTorch、CUDA、模型权重或 `.venv` 放入主 portable payload、根 `requirements.txt` 或主应用 EXE。VoxCPM 设置脚本应自动探测可用 Python 运行时，优先选择 3.11 及以上；如果没有兼容解释器，必须明确失败而不是静默重试系统默认环境。VoxCPM 设置失败时必须提示日志位置，并且主应用安装仍视为成功。
 
-安装后的主应用还必须能从设置页优先导入 GitHub Release 的 VoxCPM2 运行时包，因此 portable payload 和安装器内嵌的 VoxCPM payload 只能包含轻量 service-only 文件：`install_local.ps1`、`server.py`、`engine.py`、`requirements.txt`、`README.md`。不得整目录打包 `tools/voxcpm_service/`，避免误带入 `__pycache__`、`.venv`、模型权重、Torch/CUDA wheel、Hugging Face/ModelScope 下载缓存或其它机器相关产物。应用内导入运行时包时，运行时仍落位到用户设置的 `voxcpm_install_root`；`后台安装 / 更新` 继续使用用户设置的 `voxcpm_install_root` 和 `voxcpm_model_cache_root`，并按 `voxcpm_use_model_mirror` 决定是否传递 `UseHfMirror`。`后台安装 / 更新` 在此阶段是兼容/兜底路径，不再是普通用户首选路径。应用启动时不自动安装或启动 VoxCPM；用户不勾选安装器 VoxCPM 选项且不点击设置页导入运行时包或 `后台安装 / 更新` 时，不得下载模型、创建 venv、安装 Torch、启动服务或写入模型缓存。VoxCPM 安装脚本执行“更新”时必须刷新已安装的 service 文件，并校验复制后的服务包含 `/synthesize_stream`，避免旧 `service.server` 残留导致客户端回退完整 WAV。
+安装后的主应用还必须能从设置页优先下载并导入 ModelScope 上的 VoxCPM2 运行时包和模型包，因此 portable payload 和安装器内嵌的 VoxCPM payload 只能包含轻量 service-only 文件：`install_local.ps1`、`server.py`、`engine.py`、`requirements.txt`、`README.md`。不得整目录打包 `tools/voxcpm_service/`，避免误带入 `__pycache__`、`.venv`、模型权重、Torch/CUDA wheel、Hugging Face/ModelScope 下载缓存或其它机器相关产物。应用内应支持三条路径：`下载并导入运行时包`、`导入运行时包`、`导入模型包`。运行时导入时，运行时仍落位到用户设置的 `voxcpm_install_root`；模型包导入时，模型落位到用户设置的 `voxcpm_model_cache_root`。`后台安装 / 更新` 继续使用用户设置的 `voxcpm_install_root` 和 `voxcpm_model_cache_root`，并按 `voxcpm_use_model_mirror` 决定是否传递 `UseHfMirror`。`后台安装 / 更新` 在此阶段是兼容/兜底路径，不再是普通用户首选路径。应用启动时不自动安装或启动 VoxCPM；用户不勾选安装器 VoxCPM 选项且不点击设置页下载/导入运行时包或 `后台安装 / 更新` 时，不得下载模型、创建 venv、安装 Torch、启动服务或写入模型缓存。VoxCPM 安装脚本执行“更新”时必须刷新已安装的 service 文件，并校验复制后的服务包含 `/synthesize_stream`，避免旧 `service.server` 残留导致客户端回退完整 WAV。
 
 ## 运行时验证
 

@@ -1,9 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 
 
-APP_VERSION = "0.1.10"
+APP_VERSION = "0.1.11"
 
 
 @dataclass(slots=True, frozen=True)
@@ -14,6 +14,15 @@ class ChangelogEntry:
 
 
 CHANGELOG: tuple[ChangelogEntry, ...] = (
+
+    ChangelogEntry(
+        version="0.1.11",
+        date="2026-06-18",
+        changes=(
+            "VoxCPM 运行时包下载路径（ModelScope 命名空间/仓库名/文件名/驱动版本）改为可在设置页直接修改。",
+            "ModelScope 下载仓库已从 bei_yu_ming 切换为 borealis，运行时包与模型包已上传。",
+        ),
+    ),
     ChangelogEntry(
         version="0.1.10",
         date="2026-06-18",
@@ -113,3 +122,4 @@ def formatted_changelog() -> str:
         sections.append(f"v{entry.version} - {entry.date}")
         sections.extend(f"- {change}" for change in entry.changes)
     return "\n".join(sections)
+

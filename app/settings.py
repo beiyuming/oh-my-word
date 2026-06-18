@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import logging
@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 from .models import (
     Accent,
     AppSettings,
+    DEFAULT_AUTO_PRONOUNCE_DELAY_SECONDS,
     DEFAULT_ACTIVITY_THRESHOLD_PER_MINUTE,
     DEFAULT_ACTIVITY_SLOWDOWN_WEIGHT,
     DEFAULT_BUSY_STOP_THRESHOLD_SECONDS,
@@ -164,6 +165,14 @@ def normalize_settings(payload: Any) -> AppSettings:
             data.get("snooze_minutes"),
             DEFAULT_SNOOZE_MINUTES,
         ),
+        auto_pronounce_on_popup=_normalize_bool(
+            data.get("auto_pronounce_on_popup"),
+            defaults.auto_pronounce_on_popup,
+        ),
+        auto_pronounce_delay_seconds=_normalize_auto_pronounce_delay_seconds(
+            data.get("auto_pronounce_delay_seconds"),
+            DEFAULT_AUTO_PRONOUNCE_DELAY_SECONDS,
+        ),
         mute_pronunciation=_normalize_bool(data.get("mute_pronunciation"), defaults.mute_pronunciation),
         pronunciation_content_mode=_normalize_enum(
             data.get("pronunciation_content_mode"),
@@ -282,6 +291,8 @@ def settings_to_dict(settings: AppSettings) -> dict[str, Any]:
         "activity_slowdown_weight": settings.activity_slowdown_weight,
         "popup_duration_seconds": settings.popup_duration_seconds,
         "snooze_minutes": settings.snooze_minutes,
+        "auto_pronounce_on_popup": settings.auto_pronounce_on_popup,
+        "auto_pronounce_delay_seconds": settings.auto_pronounce_delay_seconds,
         "mute_pronunciation": settings.mute_pronunciation,
         "pronunciation_content_mode": settings.pronunciation_content_mode.value,
         "accent": settings.accent.value,
@@ -413,6 +424,14 @@ def _normalize_timeout_seconds(value: Any, default: int) -> int:
     return min(max(timeout, 1), 120)
 
 
+def _normalize_auto_pronounce_delay_seconds(value: Any, default: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return default
+    if value < 0:
+        return default
+    return round(min(float(value), 10.0), 2)
+
+
 def _normalize_prebuffer_seconds(value: Any, default: float) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return default
@@ -429,6 +448,12 @@ def _normalize_path_text(value: Any, default: str) -> str:
     if not expanded.strip():
         return default
     return str(Path(expanded))
+
+
+def _normalize_modelscope_field(value: Any, default: str) -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return default
 
 
 def _normalize_voice_prompt(value: Any, default: str, max_length: int = 300) -> str:

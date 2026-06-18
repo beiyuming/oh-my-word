@@ -9,7 +9,9 @@ from tempfile import TemporaryDirectory
 
 from app.voxcpm_runtime import (
     compare_version_parts,
+    load_model_manifest_from_zip,
     load_runtime_manifest_from_zip,
+    validate_model_zip_layout,
     validate_runtime_environment,
     validate_runtime_zip_layout,
 )
@@ -38,6 +40,8 @@ class VoxCpmRuntimeTests(unittest.TestCase):
                             "torch_version": "2.6.0",
                             "model_id": "openbmb/VoxCPM2",
                             "model_version": "2026-06-18",
+                            "model_package_id": "voxcpm2-model-cu130-r1",
+                            "model_package_filename": "voxcpm2-model-cu130-r1.zip",
                             "expected_layout_version": 1,
                             "package_size": 123,
                             "file_hashes": {},
@@ -51,6 +55,7 @@ class VoxCpmRuntimeTests(unittest.TestCase):
         self.assertEqual(manifest.runtime_id, "voxcpm2-runtime-win-x64-cu124-r1")
         self.assertEqual(manifest.cuda_tag, "cu124")
         self.assertEqual(manifest.min_driver_version, "551.00")
+        self.assertEqual(manifest.model_package_filename, "voxcpm2-model-cu130-r1.zip")
 
     def test_rejects_zip_without_runtime_directory(self) -> None:
         with TemporaryDirectory() as tmp_dir:
@@ -70,6 +75,8 @@ class VoxCpmRuntimeTests(unittest.TestCase):
                             "torch_version": "2.6.0",
                             "model_id": "openbmb/VoxCPM2",
                             "model_version": "2026-06-18",
+                            "model_package_id": "voxcpm2-model-cu130-r1",
+                            "model_package_filename": "voxcpm2-model-cu130-r1.zip",
                             "expected_layout_version": 1,
                             "package_size": 123,
                             "file_hashes": {},
@@ -92,7 +99,6 @@ class VoxCpmRuntimeTests(unittest.TestCase):
             start_payload = b"start-script"
             health_payload = b"health-script"
             service_payload = b"service-code"
-            model_payload = b"model-bytes"
             with zipfile.ZipFile(zip_path, "w") as archive:
                 archive.writestr(
                     "manifest.json",
@@ -108,6 +114,8 @@ class VoxCpmRuntimeTests(unittest.TestCase):
                             "torch_version": "2.6.0",
                             "model_id": "openbmb/VoxCPM2",
                             "model_version": "2026-06-18",
+                            "model_package_id": "voxcpm2-model-cu130-r1",
+                            "model_package_filename": "voxcpm2-model-cu130-r1.zip",
                             "expected_layout_version": 1,
                             "package_size": 123,
                             "file_hashes": {
@@ -115,7 +123,6 @@ class VoxCpmRuntimeTests(unittest.TestCase):
                                 "runtime/start_service.ps1": "deadbeef",
                                 "runtime/healthcheck.ps1": _sha256_bytes(health_payload),
                                 "runtime/service/server.py": _sha256_bytes(service_payload),
-                                "runtime/models/model.safetensors": _sha256_bytes(model_payload),
                             },
                             "built_at": "2026-06-18T12:00:00Z",
                         }
@@ -125,7 +132,6 @@ class VoxCpmRuntimeTests(unittest.TestCase):
                 archive.writestr("runtime/start_service.ps1", start_payload)
                 archive.writestr("runtime/healthcheck.ps1", health_payload)
                 archive.writestr("runtime/service/server.py", service_payload)
-                archive.writestr("runtime/models/model.safetensors", model_payload)
 
             manifest = load_runtime_manifest_from_zip(zip_path)
             result = validate_runtime_zip_layout(zip_path, manifest)
@@ -156,6 +162,8 @@ class VoxCpmRuntimeTests(unittest.TestCase):
                             "torch_version": "2.6.0",
                             "model_id": "openbmb/VoxCPM2",
                             "model_version": "2026-06-18",
+                            "model_package_id": "voxcpm2-model-cu130-r1",
+                            "model_package_filename": "voxcpm2-model-cu130-r1.zip",
                             "expected_layout_version": 1,
                             "package_size": 123,
                             "file_hashes": {},
@@ -198,6 +206,8 @@ class VoxCpmRuntimeTests(unittest.TestCase):
                             "torch_version": "2.6.0",
                             "model_id": "openbmb/VoxCPM2",
                             "model_version": "2026-06-18",
+                            "model_package_id": "voxcpm2-model-cu130-r1",
+                            "model_package_filename": "voxcpm2-model-cu130-r1.zip",
                             "expected_layout_version": 1,
                             "package_size": 123,
                             "file_hashes": {},
@@ -221,3 +231,35 @@ class VoxCpmRuntimeTests(unittest.TestCase):
 
         self.assertFalse(result.ok)
         self.assertIn("NVIDIA GPU", result.message)
+
+    def test_validates_split_model_package_layout(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            zip_path = Path(tmp_dir) / "model.zip"
+            model_payload = b"model-bytes"
+            config_payload = b"{}"
+            with zipfile.ZipFile(zip_path, "w") as archive:
+                archive.writestr(
+                    "model_manifest.json",
+                    json.dumps(
+                        {
+                            "model_id": "openbmb/VoxCPM2",
+                            "model_version": "2026-06-18",
+                            "model_package_filename": "voxcpm2-model-cu130-r1.zip",
+                            "expected_model_dir": "VoxCPM2-local",
+                            "package_size": 456,
+                            "file_hashes": {
+                                "models/VoxCPM2-local/model.safetensors": _sha256_bytes(model_payload),
+                                "models/VoxCPM2-local/config.json": _sha256_bytes(config_payload),
+                            },
+                            "built_at": "2026-06-18T12:00:00Z",
+                        }
+                    ),
+                )
+                archive.writestr("models/VoxCPM2-local/model.safetensors", model_payload)
+                archive.writestr("models/VoxCPM2-local/config.json", config_payload)
+
+            manifest = load_model_manifest_from_zip(zip_path)
+            result = validate_model_zip_layout(zip_path, manifest)
+
+        self.assertEqual(manifest.expected_model_dir, "VoxCPM2-local")
+        self.assertTrue(result.ok)

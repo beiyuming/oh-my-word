@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
@@ -149,6 +149,8 @@ class SettingsDialog(QDialog):
     import_wordbook_requested = Signal()
     download_wordbook_requested = Signal()
     voxcpm_runtime_import_requested = Signal()
+    voxcpm_runtime_download_requested = Signal()
+    voxcpm_model_import_requested = Signal()
     voxcpm_install_requested = Signal()
     voxcpm_start_requested = Signal()
     voxcpm_stop_requested = Signal()
@@ -182,6 +184,8 @@ class SettingsDialog(QDialog):
         self._voxcpm_service_status = QLabel("未检测", self)
         self._voxcpm_message = QLabel("", self)
         self._voxcpm_runtime_button = QPushButton("导入 VoxCPM 运行时包", self)
+        self._voxcpm_runtime_download_button = QPushButton("下载并导入运行时包", self)
+        self._voxcpm_model_button = QPushButton("导入模型包", self)
         self._voxcpm_install_button = QPushButton("后台安装 / 更新", self)
         self._voxcpm_start_button = QPushButton("启动服务", self)
         self._voxcpm_stop_button = QPushButton("停止服务", self)
@@ -191,12 +195,14 @@ class SettingsDialog(QDialog):
         self._voxcpm_model_browse_button = QPushButton("选择", self)
         self._enabled = QCheckBox(self)
         self._mute = QCheckBox(self)
+        self._auto_pronounce_on_popup = QCheckBox(self)
         self._min_delay = QSpinBox(self)
         self._max_delay = QSpinBox(self)
         self._activity_threshold = QSpinBox(self)
         self._activity_weight = QSpinBox(self)
         self._popup_duration = QSpinBox(self)
         self._snooze_minutes = QSpinBox(self)
+        self._auto_pronounce_delay = QDoubleSpinBox(self)
         self._pronounce_hotkey = HotkeyCaptureButton(self)
         self._toggle_detail_hotkey = HotkeyCaptureButton(self)
         self._trigger_now_hotkey = HotkeyCaptureButton(self)
@@ -226,11 +232,14 @@ class SettingsDialog(QDialog):
 
         self._enabled.toggled.connect(lambda _: self._refresh_toggle_labels())
         self._mute.toggled.connect(lambda _: self._refresh_toggle_labels())
+        self._auto_pronounce_on_popup.toggled.connect(lambda _: self._refresh_toggle_labels())
         self._voxcpm_use_model_mirror.toggled.connect(lambda _: self._refresh_toggle_labels())
         self._voxcpm_auto_start.toggled.connect(lambda _: self._refresh_toggle_labels())
         self._import_wordbook_button.clicked.connect(self.import_wordbook_requested.emit)
         self._download_wordbook_button.clicked.connect(self.download_wordbook_requested.emit)
         self._voxcpm_runtime_button.clicked.connect(self.voxcpm_runtime_import_requested.emit)
+        self._voxcpm_runtime_download_button.clicked.connect(self.voxcpm_runtime_download_requested.emit)
+        self._voxcpm_model_button.clicked.connect(self.voxcpm_model_import_requested.emit)
         self._voxcpm_install_button.clicked.connect(self.voxcpm_install_requested.emit)
         self._voxcpm_start_button.clicked.connect(self.voxcpm_start_requested.emit)
         self._voxcpm_stop_button.clicked.connect(self.voxcpm_stop_requested.emit)
@@ -268,6 +277,8 @@ class SettingsDialog(QDialog):
         self._activity_weight.setValue(settings.activity_slowdown_weight)
         self._popup_duration.setValue(settings.popup_duration_seconds)
         self._snooze_minutes.setValue(settings.snooze_minutes)
+        self._auto_pronounce_on_popup.setChecked(settings.auto_pronounce_on_popup)
+        self._auto_pronounce_delay.setValue(settings.auto_pronounce_delay_seconds)
         self._pronounce_hotkey.set_sequence(settings.pronounce_hotkey)
         self._toggle_detail_hotkey.set_sequence(settings.toggle_detail_hotkey)
         self._trigger_now_hotkey.set_sequence(settings.trigger_now_hotkey)
@@ -293,6 +304,8 @@ class SettingsDialog(QDialog):
             activity_slowdown_weight=self._activity_weight.value(),
             popup_duration_seconds=self._popup_duration.value(),
             snooze_minutes=self._snooze_minutes.value(),
+            auto_pronounce_on_popup=self._auto_pronounce_on_popup.isChecked(),
+            auto_pronounce_delay_seconds=self._auto_pronounce_delay.value(),
             mute_pronunciation=self._mute.isChecked(),
             pronunciation_content_mode=self._current_enum_value(
                 self._pronunciation_content_mode,
@@ -359,6 +372,10 @@ class SettingsDialog(QDialog):
 
         self._snooze_minutes.setRange(1, 240)
         self._snooze_minutes.setSuffix(" 分钟")
+        self._auto_pronounce_delay.setRange(0.0, 10.0)
+        self._auto_pronounce_delay.setDecimals(2)
+        self._auto_pronounce_delay.setSingleStep(0.05)
+        self._auto_pronounce_delay.setSuffix(" 秒")
 
         self._voxcpm_endpoint.setPlaceholderText(AppSettings().voxcpm_endpoint)
         self._voxcpm_voice_prompt.setPlaceholderText("A calm English teacher voice, clear pronunciation.")
@@ -413,6 +430,8 @@ class SettingsDialog(QDialog):
         engine_group = QGroupBox("发音引擎", widget)
         engine_form = self._new_form(engine_group)
         engine_form.addRow(self._mute)
+        engine_form.addRow(self._auto_pronounce_on_popup)
+        engine_form.addRow("自动朗读延迟", self._auto_pronounce_delay)
         engine_form.addRow("朗读内容", self._pronunciation_content_mode)
         engine_form.addRow("发音口音", self._accent)
         engine_form.addRow("发音引擎", self._tts_provider)
@@ -446,6 +465,8 @@ class SettingsDialog(QDialog):
 
         action_row = QHBoxLayout()
         action_row.addWidget(self._voxcpm_runtime_button)
+        action_row.addWidget(self._voxcpm_runtime_download_button)
+        action_row.addWidget(self._voxcpm_model_button)
         action_row.addWidget(self._voxcpm_install_button)
         action_row.addWidget(self._voxcpm_start_button)
         action_row.addWidget(self._voxcpm_stop_button)
@@ -507,6 +528,9 @@ class SettingsDialog(QDialog):
         layout.addWidget(button)
         return widget
 
+    def set_voxcpm_download_progress(self, stage: str) -> None:
+        self._voxcpm_message.setText(stage)
+
     def set_voxcpm_status(self, status: object) -> None:
         installed = bool(getattr(status, "installed", False))
         running = bool(getattr(status, "running", False))
@@ -545,6 +569,8 @@ class SettingsDialog(QDialog):
         self._voxcpm_service_status.setText("运行中" if running else "未运行")
         self._voxcpm_message.setText(message or (f"日志：{log_path}" if log_path else ""))
         self._voxcpm_runtime_button.setEnabled(not installing)
+        self._voxcpm_runtime_download_button.setEnabled(not installing)
+        self._voxcpm_model_button.setEnabled(not installing)
         self._voxcpm_install_button.setEnabled(not installing)
         self._voxcpm_start_button.setEnabled(installed and not running and not installing)
         self._voxcpm_stop_button.setEnabled(running)
@@ -582,6 +608,11 @@ class SettingsDialog(QDialog):
             "发音：已静音（取消勾选恢复）"
             if self._mute.isChecked()
             else "发音：正常播放（勾选后静音）"
+        )
+        self._auto_pronounce_on_popup.setText(
+            "弹窗：自动朗读当前单词"
+            if self._auto_pronounce_on_popup.isChecked()
+            else "弹窗：不自动朗读"
         )
         self._voxcpm_use_model_mirror.setText(
             "下载：优先使用国内镜像 / ModelScope"

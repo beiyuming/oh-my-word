@@ -34,7 +34,7 @@ class _FakeProcess:
 
 
 class _FakeResponse:
-    def __init__(self, payload: dict[str, Any]) -> None:
+    def __init__(self, payload: bytes | dict[str, Any]) -> None:
         self._payload = payload
 
     def __enter__(self) -> "_FakeResponse":
@@ -43,7 +43,9 @@ class _FakeResponse:
     def __exit__(self, *_: object) -> None:
         return None
 
-    def read(self) -> bytes:
+    def read(self, _size: int = -1) -> bytes:
+        if isinstance(self._payload, bytes):
+            return self._payload
         return json.dumps(self._payload).encode("utf-8")
 
 
@@ -56,7 +58,6 @@ def _write_runtime_package(zip_path: Path) -> None:
     start_payload = b"start-service"
     health_payload = b"health-check"
     service_payload = b"service-code"
-    model_payload = b"model-payload"
     with zipfile.ZipFile(zip_path, "w") as archive:
         archive.writestr(
             "manifest.json",
@@ -72,6 +73,8 @@ def _write_runtime_package(zip_path: Path) -> None:
                     "torch_version": "2.6.0",
                     "model_id": "openbmb/VoxCPM2",
                     "model_version": "2026-06-18",
+                    "model_package_id": "voxcpm2-model-cu130-r1",
+                    "model_package_filename": "voxcpm2-model-cu130-r1.zip",
                     "expected_layout_version": 1,
                     "package_size": 1024,
                     "file_hashes": {
@@ -79,7 +82,6 @@ def _write_runtime_package(zip_path: Path) -> None:
                         "runtime/start_service.ps1": _sha256_bytes(start_payload),
                         "runtime/healthcheck.ps1": _sha256_bytes(health_payload),
                         "runtime/service/server.py": _sha256_bytes(service_payload),
-                        "runtime/models/model.safetensors": _sha256_bytes(model_payload),
                     },
                     "built_at": "2026-06-18T12:00:00Z",
                 }
@@ -89,7 +91,31 @@ def _write_runtime_package(zip_path: Path) -> None:
         archive.writestr("runtime/start_service.ps1", start_payload)
         archive.writestr("runtime/healthcheck.ps1", health_payload)
         archive.writestr("runtime/service/server.py", service_payload)
-        archive.writestr("runtime/models/model.safetensors", model_payload)
+
+
+def _write_model_package(zip_path: Path) -> None:
+    model_payload = b"model-payload"
+    config_payload = b"{}"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr(
+            "model_manifest.json",
+            json.dumps(
+                {
+                    "model_id": "openbmb/VoxCPM2",
+                    "model_version": "2026-06-18",
+                    "model_package_filename": "voxcpm2-model-cu130-r1.zip",
+                    "expected_model_dir": "VoxCPM2-local",
+                    "package_size": 2048,
+                    "file_hashes": {
+                        "models/VoxCPM2-local/model.safetensors": _sha256_bytes(model_payload),
+                        "models/VoxCPM2-local/config.json": _sha256_bytes(config_payload),
+                    },
+                    "built_at": "2026-06-18T12:00:00Z",
+                }
+            ),
+        )
+        archive.writestr("models/VoxCPM2-local/model.safetensors", model_payload)
+        archive.writestr("models/VoxCPM2-local/config.json", config_payload)
 
 
 class VoxCpmServiceManagerTests(unittest.TestCase):
@@ -112,6 +138,8 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
                         "torch_version": "2.6.0",
                         "model_id": "openbmb/VoxCPM2",
                         "model_version": "2026-06-18",
+                        "model_package_id": "voxcpm2-model-cu130-r1",
+                        "model_package_filename": "voxcpm2-model-cu130-r1.zip",
                         "expected_layout_version": 1,
                         "package_size": 1024,
                         "file_hashes": {},
@@ -388,6 +416,115 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
             self.assertEqual(status.runtime_id, "voxcpm2-runtime-win-x64-cu124-r1")
             self.assertTrue((install_root / ".venv" / "Scripts" / "python.exe").exists())
             self.assertTrue((install_root / "runtime_manifest.json").exists())
+
+    def test_import_model_package_extracts_model_payload(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            install_root = root / "voxcpm"
+            model_root = install_root / "models"
+            package_path = root / "model.zip"
+            _write_model_package(package_path)
+            (install_root / ".venv" / "Scripts").mkdir(parents=True)
+            (install_root / ".venv" / "Scripts" / "python.exe").write_text("", encoding="utf-8")
+            (install_root / "start_service.ps1").write_text("", encoding="utf-8")
+
+            manager = VoxCpmServiceManager(
+                install_root=install_root,
+                model_cache_root=model_root,
+                script_root=root / "scripts",
+            )
+
+            self.assertTrue(manager.import_model_package(package_path))
+
+            self.assertTrue((model_root / "VoxCPM2-local" / "model.safetensors").exists())
+            self.assertTrue((model_root / "model_manifest.json").exists())
+
+    def test_download_and_import_runtime_bundle_rejects_old_driver_before_download(self) -> None:
+        calls = {"urlopen": 0}
+
+        def fake_urlopen(*_args: Any, **_kwargs: Any) -> _FakeResponse:
+            calls["urlopen"] += 1
+            return _FakeResponse(b"")
+
+        with TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            manager = VoxCpmServiceManager(
+                install_root=root / "voxcpm",
+                model_cache_root=root / "voxcpm" / "models",
+                script_root=root / "scripts",
+                urlopen_func=fake_urlopen,
+                environment_probe=lambda: {
+                    "target_os": "windows",
+                    "target_arch": "x64",
+                    "has_nvidia_gpu": True,
+                    "driver_version": "551.00",
+                    "free_bytes": 10_000_000,
+                },
+            )
+
+            self.assertFalse(
+                manager._download_and_import_runtime_bundle_blocking(
+                    namespace="demo",
+                    repo_name="repo",
+                    runtime_filename="voxcpm2-runtime-win-x64-cu130-r1.zip",
+                    min_driver_version="580",
+                )
+            )
+
+            self.assertEqual(calls["urlopen"], 0)
+            self.assertIn("580", manager.status().message)
+
+    def test_download_and_import_runtime_bundle_downloads_runtime_and_model_packages(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            runtime_zip = root / "runtime.zip"
+            model_zip = root / "model.zip"
+            _write_runtime_package(runtime_zip)
+            _write_model_package(model_zip)
+            runtime_bytes = runtime_zip.read_bytes()
+            model_bytes = model_zip.read_bytes()
+            runtime_sha = f"{_sha256_bytes(runtime_bytes)}  voxcpm2-runtime-win-x64-cu130-r1.zip".encode("utf-8")
+            model_sha = f"{_sha256_bytes(model_bytes)}  voxcpm2-model-cu130-r1.zip".encode("utf-8")
+
+            def fake_urlopen(request: Any, **_kwargs: Any) -> _FakeResponse:
+                url = request.full_url if hasattr(request, "full_url") else str(request)
+                if "voxcpm2-runtime-win-x64-cu130-r1.zip.sha256" in url:
+                    return _FakeResponse(runtime_sha)
+                if "voxcpm2-runtime-win-x64-cu130-r1.zip" in url:
+                    return _FakeResponse(runtime_bytes)
+                if "voxcpm2-model-cu130-r1.zip.sha256" in url:
+                    return _FakeResponse(model_sha)
+                if "voxcpm2-model-cu130-r1.zip" in url:
+                    return _FakeResponse(model_bytes)
+                raise AssertionError(url)
+
+            manager = VoxCpmServiceManager(
+                install_root=root / "voxcpm",
+                model_cache_root=root / "voxcpm" / "models",
+                script_root=root / "scripts",
+                urlopen_func=fake_urlopen,
+                environment_probe=lambda: {
+                    "target_os": "windows",
+                    "target_arch": "x64",
+                    "has_nvidia_gpu": True,
+                    "driver_version": "580.88",
+                    "free_bytes": 10_000_000,
+                },
+                runtime_healthcheck_runner=lambda _runtime_root: (True, "ok"),
+            )
+
+            self.assertTrue(
+                manager._download_and_import_runtime_bundle_blocking(
+                    namespace="demo",
+                    repo_name="repo",
+                    runtime_filename="voxcpm2-runtime-win-x64-cu130-r1.zip",
+                    min_driver_version="580",
+                )
+            )
+
+            self.assertTrue((root / "voxcpm" / ".venv" / "Scripts" / "python.exe").exists())
+            self.assertTrue((root / "voxcpm" / "models" / "VoxCPM2-local" / "model.safetensors").exists())
+            self.assertIn("已下载并导入", manager.status().message)
 
     def test_import_runtime_package_restores_backup_when_activation_fails(self) -> None:
         with TemporaryDirectory() as tmp_dir:

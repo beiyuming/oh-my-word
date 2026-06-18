@@ -21,6 +21,8 @@ class SettingsDialogTtsTests(unittest.TestCase):
         dialog = SettingsDialog(
             AppSettings(
                 tts_provider=TtsProvider.VOXCPM_LOCAL,
+                auto_pronounce_on_popup=True,
+                auto_pronounce_delay_seconds=1.4,
                 pronunciation_content_mode=PronunciationContentMode.EXAMPLE,
                 voxcpm_endpoint="http://localhost:8810",
                 voxcpm_timeout_seconds=25,
@@ -37,6 +39,8 @@ class SettingsDialogTtsTests(unittest.TestCase):
         settings = dialog.get_settings()
 
         self.assertIs(settings.tts_provider, TtsProvider.VOXCPM_LOCAL)
+        self.assertTrue(settings.auto_pronounce_on_popup)
+        self.assertEqual(settings.auto_pronounce_delay_seconds, 1.4)
         self.assertIs(settings.pronunciation_content_mode, PronunciationContentMode.EXAMPLE)
         self.assertEqual(settings.voxcpm_endpoint, "http://localhost:8810")
         self.assertEqual(settings.voxcpm_timeout_seconds, 25)
@@ -54,6 +58,15 @@ class SettingsDialogTtsTests(unittest.TestCase):
         labels = [dialog._tabs.tabText(index) for index in range(dialog._tabs.count())]
 
         self.assertEqual(labels, ["学习", "显示", "发音", "快捷键", "词库", "关于"])
+
+    def test_pronunciation_tab_has_auto_pronounce_controls(self) -> None:
+        dialog = SettingsDialog(AppSettings(auto_pronounce_on_popup=True, auto_pronounce_delay_seconds=0.75))
+        self.addCleanup(dialog.close)
+
+        settings = dialog.get_settings()
+
+        self.assertTrue(settings.auto_pronounce_on_popup)
+        self.assertEqual(settings.auto_pronounce_delay_seconds, 0.75)
 
     def test_about_tab_shows_version_and_changelog(self) -> None:
         dialog = SettingsDialog(AppSettings())
@@ -78,6 +91,8 @@ class SettingsDialogTtsTests(unittest.TestCase):
         self.addCleanup(dialog.close)
         emitted: list[str] = []
         dialog.voxcpm_runtime_import_requested.connect(lambda: emitted.append("runtime"))
+        dialog.voxcpm_runtime_download_requested.connect(lambda: emitted.append("download"))
+        dialog.voxcpm_model_import_requested.connect(lambda: emitted.append("model"))
         dialog.voxcpm_install_requested.connect(lambda: emitted.append("install"))
         dialog.voxcpm_start_requested.connect(lambda: emitted.append("start"))
         dialog.voxcpm_stop_requested.connect(lambda: emitted.append("stop"))
@@ -85,13 +100,15 @@ class SettingsDialogTtsTests(unittest.TestCase):
         dialog.voxcpm_open_log_requested.connect(lambda: emitted.append("log"))
 
         dialog._voxcpm_runtime_button.click()
+        dialog._voxcpm_runtime_download_button.click()
+        dialog._voxcpm_model_button.click()
         dialog._voxcpm_install_button.click()
         dialog._voxcpm_start_button.click()
         dialog._voxcpm_stop_button.click()
         dialog._voxcpm_check_button.click()
         dialog._voxcpm_open_log_button.click()
 
-        self.assertEqual(emitted, ["runtime", "install", "start", "stop", "check", "log"])
+        self.assertEqual(emitted, ["runtime", "download", "model", "install", "start", "stop", "check", "log"])
 
     def test_set_voxcpm_status_shows_runtime_metadata(self) -> None:
         dialog = SettingsDialog(AppSettings())

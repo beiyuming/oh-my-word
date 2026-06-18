@@ -60,11 +60,13 @@ VoxCPM service 调用 `generate()` 和 `generate_streaming()` 时必须显式启
 
 完整 WAV fallback 成功时播放返回的 WAV bytes。运行期音频缓存应使用有限文件，例如 `storage/tts_cache/voxcpm-0.wav` 到 `voxcpm-3.wav` 的轮换，不要无界缓存每次生成结果。连续朗读时应先停止旧播放，再写入下一个轮换文件并播放，避免 QtMultimedia 对同一路径 source 复用导致偶发无声。流式 PCM 播放应按 `voxcpm_stream_prebuffer_seconds` 先预缓冲一小段音频再启动 `QAudioSink`，用少量首响延迟换取更低的句中 underflow 卡顿概率；该值在设置页保存后应通过重建 VoxCPM TTS 后端立即作用于后续朗读。VoxCPM provider 的 `speak()` 在异步路径上只表示“请求已受理”；实际播放开始应通过 `playback_started` 类信号回传给 controller。
 
-VoxCPM service lifecycle 由 controller 和 `app/voxcpm_service.py` 管理，不属于 `app/tts.py` 的职责。设置页可以导入运行时包、后台安装/更新、启动、停止、检测和打开日志；这些操作不能阻塞主 UI。`导入运行时包` 是普通用户首选路径，`后台安装 / 更新` 仅作为兼容/兜底路径。停止服务必须停止本应用当前跟踪的 service process；如果服务是前一次应用会话或安装脚本启动的旧进程，则可以停止同一 endpoint 上命令行可识别为 `uvicorn service.server:app` 的本地 VoxCPM 进程，但不得误杀无关端口进程。`voxcpm_auto_start` 只表示“使用时自动启动”：当用户已选择 `voxcpm_local`、已安装本地服务且打开该开关时，朗读触发前可以启动已安装的本地服务。朗读热路径不应先做同步 `/health` 探活；若需要判断服务可用性，应使用异步 Qt 网络请求或非热路径检测。若未安装，controller 必须提示用户去设置页导入运行时包；只有在缺少匹配 runtime zip 时才建议改走 `后台安装 / 更新`，且仍不静默下载数 GB 模型。应用启动时默认不启动 VoxCPM，避免无意占用 GPU/内存。
+VoxCPM service lifecycle 由 controller 和 `app/voxcpm_service.py` 管理，不属于 `app/tts.py` 的职责。设置页可以下载并导入运行时包、导入运行时包、导入模型包、后台安装/更新、启动、停止、检测和打开日志；这些操作不能阻塞主 UI。`下载并导入运行时包` 是普通用户首选路径，`导入运行时包` 与 `导入模型包` 是手动下载后的兜底路径，`后台安装 / 更新` 仅作为兼容/兜底路径。停止服务必须停止本应用当前跟踪的 service process；如果服务是前一次应用会话或安装脚本启动的旧进程，则可以停止同一 endpoint 上命令行可识别为 `uvicorn service.server:app` 的本地 VoxCPM 进程，但不得误杀无关端口进程。`voxcpm_auto_start` 只表示“使用时自动启动”：当用户已选择 `voxcpm_local`、已安装本地服务且打开该开关时，朗读触发前可以启动已安装的本地服务。朗读热路径不应先做同步 `/health` 探活；若需要判断服务可用性，应使用异步 Qt 网络请求或非热路径检测。若未安装，controller 必须提示用户去设置页下载/导入运行时包；只有在缺少匹配 runtime zip 时才建议改走 `后台安装 / 更新`，且仍不静默下载数 GB 模型。应用启动时默认不启动 VoxCPM，避免无意占用 GPU/内存。
 
 `system_qt` 在 `warm_up()` 前必须保持 `not_initialized`；warm_up 失败后进入 `unavailable` 并记录错误。`speak()` 在未就绪时必须返回 `False`，controller 不应等待初始化完成再继续 UI 交互。
 
 朗读按钮和默认朗读热键应按 `pronunciation_content_mode` 生成文本：`word` 只读单词，`example` 只读英文例句且缺例句时回退到单词，`word_and_example` 读单词加英文例句并在两者之间使用明确停顿：`word.\n\nexample_sentence`。默认值为 `word_and_example`。如果词条没有有效英文例句，则只朗读单词。不要把 `example_translation` 送入英语 TTS。
+
+当 `auto_pronounce_on_popup` 为 `true` 时，controller 必须在单词弹窗展示后启动一次性定时器，并在 `auto_pronounce_delay_seconds` 到期后触发与手动朗读相同的 `pronounce_current_word()` 路径。自动朗读调度只属于 controller，不下沉到 overlay。若弹窗已关闭、当前词已变化、用户已手动触发朗读、设置改为关闭自动朗读，或静音仍开启，则待触发的自动朗读必须取消，避免重复播放或对旧词误播。
 
 朗读成功后，controller 记录当前词 `last_pronounced_at`。`system_qt` 路径可以在 `speak()` 立即成功后记录；`voxcpm_local` 路径必须在实际播放开始时记录，而不是在异步请求刚被接受时记录。静音设置开启时不朗读。
 

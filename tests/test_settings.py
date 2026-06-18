@@ -55,6 +55,8 @@ class SettingsStoreTests(unittest.TestCase):
         settings = AppSettings()
 
         self.assertIs(settings.tts_provider, TtsProvider.SYSTEM_QT)
+        self.assertFalse(settings.auto_pronounce_on_popup)
+        self.assertEqual(settings.auto_pronounce_delay_seconds, 1.0)
         self.assertEqual(settings.voxcpm_endpoint, "http://127.0.0.1:8808")
         self.assertEqual(settings.voxcpm_timeout_seconds, 15)
         self.assertIn(str(Path("OhMyWord") / "tts" / "voxcpm"), DEFAULT_VOXCPM_INSTALL_ROOT)
@@ -94,6 +96,8 @@ class SettingsStoreTests(unittest.TestCase):
                         "activity_slowdown_weight": -1,
                         "popup_duration_seconds": -3,
                         "snooze_minutes": 0,
+                        "auto_pronounce_on_popup": "yes",
+                        "auto_pronounce_delay_seconds": -1,
                         "mute_pronunciation": "no",
                         "pronunciation_content_mode": "invalid",
                         "accent": "AU",
@@ -122,6 +126,8 @@ class SettingsStoreTests(unittest.TestCase):
             self.assertEqual(settings.activity_slowdown_weight, 100)
             self.assertEqual(settings.popup_duration_seconds, 6)
             self.assertEqual(settings.snooze_minutes, 30)
+            self.assertFalse(settings.auto_pronounce_on_popup)
+            self.assertEqual(settings.auto_pronounce_delay_seconds, 1.0)
             self.assertFalse(settings.mute_pronunciation)
             self.assertIs(
                 settings.pronunciation_content_mode,
@@ -144,6 +150,8 @@ class SettingsStoreTests(unittest.TestCase):
                 json.dumps(
                     {
                         "tts_provider": "voxcpm_local",
+                        "auto_pronounce_on_popup": True,
+                        "auto_pronounce_delay_seconds": 1.25,
                         "pronunciation_content_mode": "example",
                         "voxcpm_endpoint": "http://localhost:8808/",
                         "voxcpm_timeout_seconds": 31,
@@ -161,6 +169,8 @@ class SettingsStoreTests(unittest.TestCase):
             settings = SettingsStore(paths).load()
 
             self.assertIs(settings.tts_provider, TtsProvider.VOXCPM_LOCAL)
+            self.assertTrue(settings.auto_pronounce_on_popup)
+            self.assertEqual(settings.auto_pronounce_delay_seconds, 1.25)
             self.assertIs(settings.pronunciation_content_mode, PronunciationContentMode.EXAMPLE)
             self.assertEqual(settings.voxcpm_endpoint, "http://localhost:8808")
             self.assertEqual(settings.voxcpm_timeout_seconds, 31)
@@ -182,6 +192,8 @@ class SettingsStoreTests(unittest.TestCase):
                 json.dumps(
                     {
                         "tts_provider": "voxcpm_local",
+                        "auto_pronounce_on_popup": 1,
+                        "auto_pronounce_delay_seconds": 20,
                         "voxcpm_endpoint": "https://example.com/tts",
                         "voxcpm_timeout_seconds": 0,
                         "voxcpm_install_root": "",
@@ -198,6 +210,8 @@ class SettingsStoreTests(unittest.TestCase):
             settings = SettingsStore(paths).load()
 
             self.assertIs(settings.tts_provider, TtsProvider.VOXCPM_LOCAL)
+            self.assertFalse(settings.auto_pronounce_on_popup)
+            self.assertEqual(settings.auto_pronounce_delay_seconds, 10.0)
             self.assertEqual(settings.voxcpm_endpoint, "http://127.0.0.1:8808")
             self.assertEqual(settings.voxcpm_timeout_seconds, 15)
             self.assertEqual(settings.voxcpm_install_root, DEFAULT_VOXCPM_INSTALL_ROOT)
@@ -211,6 +225,8 @@ class SettingsStoreTests(unittest.TestCase):
         payload = settings_to_dict(
             AppSettings(
                 tts_provider=TtsProvider.VOXCPM_LOCAL,
+                auto_pronounce_on_popup=True,
+                auto_pronounce_delay_seconds=0.85,
                 pronunciation_content_mode=PronunciationContentMode.WORD,
                 voxcpm_endpoint="http://localhost:8810",
                 voxcpm_timeout_seconds=22,
@@ -224,6 +240,8 @@ class SettingsStoreTests(unittest.TestCase):
         )
 
         self.assertEqual(payload["tts_provider"], "voxcpm_local")
+        self.assertTrue(payload["auto_pronounce_on_popup"])
+        self.assertEqual(payload["auto_pronounce_delay_seconds"], 0.85)
         self.assertEqual(payload["pronunciation_content_mode"], "word")
         self.assertEqual(payload["voxcpm_endpoint"], "http://localhost:8810")
         self.assertEqual(payload["voxcpm_timeout_seconds"], 22)

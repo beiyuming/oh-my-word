@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
@@ -49,6 +49,8 @@ DEFAULT_ACTIVITY_THRESHOLD_PER_MINUTE = 90
 DEFAULT_ACTIVITY_SLOWDOWN_WEIGHT = 100
 DEFAULT_POPUP_DURATION_SECONDS = 6
 DEFAULT_SNOOZE_MINUTES = 30
+DEFAULT_AUTO_PRONOUNCE_ON_POPUP = False
+DEFAULT_AUTO_PRONOUNCE_DELAY_SECONDS = 1.0
 DEFAULT_RECENT_WORDS_LIMIT = 20
 DEFAULT_VOXCPM_ENDPOINT = "http://127.0.0.1:8808"
 DEFAULT_VOXCPM_TIMEOUT_SECONDS = 15
@@ -84,6 +86,8 @@ class AppSettings:
     activity_slowdown_weight: int = DEFAULT_ACTIVITY_SLOWDOWN_WEIGHT
     popup_duration_seconds: int = DEFAULT_POPUP_DURATION_SECONDS
     snooze_minutes: int = DEFAULT_SNOOZE_MINUTES
+    auto_pronounce_on_popup: bool = DEFAULT_AUTO_PRONOUNCE_ON_POPUP
+    auto_pronounce_delay_seconds: float = DEFAULT_AUTO_PRONOUNCE_DELAY_SECONDS
     mute_pronunciation: bool = False
     pronunciation_content_mode: PronunciationContentMode = PronunciationContentMode.WORD_AND_EXAMPLE
     accent: Accent = Accent.US

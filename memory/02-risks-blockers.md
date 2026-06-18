@@ -66,11 +66,17 @@
 - 影响：目标机器既可能在探测 `python` / `python3` 候选时命中 `Arguments` 为空数组的 PowerShell 绑定异常，也可能在探测到多个 Python 候选时把数组对象误传给 `Invoke-Native -FilePath`，出现 `Using Python runtime: py -3.11 py -3 python` 这类异常日志。
 - 处理：在用户确认本轮修复完成并决定如何处理现有 `v0.1.9` Release 前，不要再递增版本号；后续覆盖现有 `.9` 资产时，要基于本地最新打包结果执行受控提交/推送/更新 tag 或 release asset，并明确说明远端旧资产曾包含哪两类安装脚本缺陷。
 
-### 11. VoxCPM2 运行时导入已接入主应用，但官方 runtime zip 资产与构建流程尚未在仓库内落地
+### 11. ModelScope 直连下载链路仍未做真实仓库端到端验证
 
-- 风险：桌面端已经把 `导入 VoxCPM 运行时包` 作为首选入口，并按 Windows 10/11 x64 + NVIDIA GPU + 最低驱动矩阵校验 zip；但仓库里还没有受控的 runtime zip 产物构建脚本、校验清单生成流程，当前也没有随本轮提交自动产出 `voxcpm2-runtime-win-x64-cu124-r1.zip` 这类资产。
-- 影响：即使主应用安装包已发布，最终用户仍需要另行拿到匹配的 GitHub Release runtime zip 才能走首选路径；如果只发布主安装器、不发布 runtime zip，用户仍会退回到 `后台安装 / 更新` 这条更依赖本机环境的兼容路径。
-- 处理：后续若继续完善该方向，需要补 runtime zip 的构建/校验/发布流程，或者至少在 Release 说明中明确“当前安装包已支持导入，但本轮未附带官方 runtime zip 资产”。
+- 风险：当前代码已经接入 `下载并导入运行时包`，并在 controller 中写死了 `namespace/repo/runtime filename/min driver` 常量；但这些值目前仍基于本地实现假设，尚未对真实线上 ModelScope 仓库做一次成功的下载、checksum、导入、启动和合成验证。
+- 影响：即使当前单元测试全部通过，真实用户环境里仍可能因为仓库名、文件名、权限、下载地址或 checksum 文件布局与代码假设不一致而失败。
+- 处理：上线前需要先把真实运行时包、模型包和 `.sha256` 文件上传到目标 ModelScope 仓库，再从设置页执行一次完整的 `下载并导入运行时包` 端到端验证，并据实回填常量和值。
+
+### 12. `下载并导入运行时包` 目前仍是同步执行，会阻塞设置页 UI
+
+- 风险：稳定 spec 和设计里都希望运行时下载/导入不阻塞主 UI，但当前 `AppController.download_and_import_voxcpm_runtime_bundle()` 直接在 UI 线程调用 `VoxCpmServiceManager.download_and_import_runtime_bundle()`；其内部使用同步 `urlopen()`、磁盘写入和 zip 校验。
+- 影响：用户点击下载后，设置页在大文件下载、hash 校验和解压期间可能无响应，也没有真实的下载进度反馈。
+- 处理：后续应把该流程移到后台线程或工作对象中，并补阶段性/字节级进度回传；在此之前，对外说明时必须明确“当前实现能用，但下载期间会阻塞设置页”。
 
 ## 普通不确定性
 

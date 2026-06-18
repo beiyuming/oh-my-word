@@ -65,7 +65,7 @@ py -3.11 main.py
 
 `settings.json` 只保存用户配置。`oh_my_word.sqlite3` 保存卡片学习状态、近期单词、FSRS 载荷、复习日志、稍后状态和全局暂停状态。`learning_state.json` 是旧版学习状态文件；如果存在，应用会在启动时兼容导入，不会删除它。
 
-发音设置保存在 `settings.json` 中：`pronunciation_content_mode` 默认为 `word_and_example`，可在设置页选择只读单词、只读例句或单词加例句；`tts_provider` 默认为 `system_qt`，可选值 `voxcpm_local` 表示调用用户本机的 VoxCPM companion process；`voxcpm_endpoint` 第一版只接受本地 HTTP 地址（默认 `http://127.0.0.1:8808`）；`voxcpm_timeout_seconds` 默认为 15 秒。VoxCPM 相关设置还包括 `voxcpm_install_root`、`voxcpm_model_cache_root`、`voxcpm_use_model_mirror`、`voxcpm_auto_start`、`voxcpm_voice_prompt` 和 `voxcpm_stream_prebuffer_seconds`，用于设置页导入 GitHub Release 提供的预构建运行时包、查看 runtime ID / CUDA / 最低驱动 / 模型版本等只读元信息，以及在兼容场景下执行 `后台安装 / 更新`、选择模型目录、控制使用时自动启动、通过 VoxCPM Voice Design 自定义发音语气，以及调整流式 PCM 播放预缓冲时间。`voxcpm_stream_prebuffer_seconds` 默认 0.35 秒，可在设置页调整为 0.00 到 2.00 秒。
+发音设置保存在 `settings.json` 中：`pronunciation_content_mode` 默认为 `word_and_example`，可在设置页选择只读单词、只读例句或单词加例句；`auto_pronounce_on_popup` 默认为 `false`，用于控制单词弹出后是否自动朗读；`auto_pronounce_delay_seconds` 默认为 `1.0` 秒，可在 `0.00` 到 `10.00` 秒之间调整，让用户先看一眼单词再开始播放；`tts_provider` 默认为 `system_qt`，可选值 `voxcpm_local` 表示调用用户本机的 VoxCPM companion process；`voxcpm_endpoint` 第一版只接受本地 HTTP 地址（默认 `http://127.0.0.1:8808`）；`voxcpm_timeout_seconds` 默认为 15 秒。VoxCPM 相关设置还包括 `voxcpm_install_root`、`voxcpm_model_cache_root`、`voxcpm_use_model_mirror`、`voxcpm_auto_start`、`voxcpm_voice_prompt` 和 `voxcpm_stream_prebuffer_seconds`，用于设置页导入/下载预构建运行时包、查看 runtime ID / CUDA / 最低驱动 / 模型版本等只读元信息，以及在兼容场景下执行 `后台安装 / 更新`、选择模型目录、控制使用时自动启动、通过 VoxCPM Voice Design 自定义发音语气，以及调整流式 PCM 播放预缓冲时间。`voxcpm_stream_prebuffer_seconds` 默认 0.35 秒，可在设置页调整为 0.00 到 2.00 秒。
 
 ## 词库
 
@@ -137,9 +137,9 @@ py -3.11 -m pytest tests -q
 
 安装器提供可选的 `Install local VoxCPM pronunciation engine` 入口，默认关闭。勾选后会在主应用文件安装完成后启动本机 VoxCPM 设置脚本，默认在主程序安装目录下创建 `tts\voxcpm`，其中 `tts\voxcpm\.venv` 保存独立 venv，`tts\voxcpm\service` 保存 service-only 文件，`tts\voxcpm\models` 保存 VoxCPM 模型缓存。安装器中修改主程序安装目录时，未手动改过的 VoxCPM engine 和模型目录会自动跟随更新；如果目标目录不可写，安装器会提示用户选择可写位置。安装脚本会通过 `ModelCacheRoot` 设置 `HF_HOME` 和 `HF_HUB_CACHE`，避免依赖全局 Hugging Face 默认缓存目录。安装器还提供 `Use model download mirror` 选项，默认勾选；镜像模式会优先从 ModelScope 下载 VoxCPM2 文件，失败时回退到 hf-mirror，用于降低直接访问 Hugging Face 下载模型时的失败率。该步骤会先探测可用的 Python 运行时，优先使用 3.11+，找不到兼容解释器时会提示明确错误。该步骤可能下载数 GB 模型，推荐 NVIDIA GPU 8 GB+ VRAM；CPU 可用但较慢。VoxCPM 设置失败不会回滚或阻止主应用安装，应用仍保持 `system_qt` 发音引擎。
 
-主安装器不会把 VoxCPM2 的重型运行时直接打进 payload。预构建运行时包会作为 GitHub Release 附件单独发布，例如 `voxcpm2-runtime-win-x64-cu124-r1.zip`、对应的 checksum 和说明文件；主安装器只提供导入和兼容安装能力。
+主安装器不会把 VoxCPM2 的重型运行时直接打进 payload。预构建运行时包和模型包会单独发布，当前主源为 ModelScope；GitHub Release 继续只放主安装器和说明文件。主安装器只提供导入、下载和兼容安装能力。
 
-如果安装时未勾选 VoxCPM，也可以之后在应用设置页的“发音”分类中优先使用 `导入 VoxCPM 运行时包`。设置页允许用户选择 GitHub Release 下载到本地的 runtime zip，并在导入后显示 runtime ID、CUDA 标签、最低驱动要求和模型版本。旧的 `后台安装 / 更新` 仍然保留，但只作为兼容/兜底路径。设置页同时允许用户选择 VoxCPM 安装目录、模型目录、下载镜像开关，并提供检测、启动服务、停止服务和打开日志入口；点击这些按钮前会先应用当前窗口里已编辑的 VoxCPM 路径设置。`voxcpm_auto_start` 默认关闭；用户选择 `VoxCPM 本地服务` 并打开“使用时自动启动”后，应用会在朗读时启动已安装的本地服务。未安装时不会静默下载数 GB 模型，而是提示用户去设置页导入运行时包，或在确有需要时执行 `后台安装 / 更新`。
+如果安装时未勾选 VoxCPM，也可以之后在应用设置页的“发音”分类中优先使用 `下载并导入运行时包`，由应用按固定的 ModelScope 仓库顺序下载 `runtime zip + model zip`，再自动导入。设置页仍然保留 `导入 VoxCPM 运行时包` 和 `导入模型包`，作为手动下载后的兜底路径。导入成功后状态区会显示 runtime ID、CUDA 标签、最低驱动要求和模型版本。旧的 `后台安装 / 更新` 仍然保留，但只作为兼容/兜底路径。设置页同时允许用户选择 VoxCPM 安装目录、模型目录、下载镜像开关，并提供检测、启动服务、停止服务和打开日志入口；点击这些按钮前会先应用当前窗口里已编辑的 VoxCPM 路径设置。`voxcpm_auto_start` 默认关闭；用户选择 `VoxCPM 本地服务` 并打开“使用时自动启动”后，应用会在朗读时启动已安装的本地服务。未安装时不会静默下载数 GB 模型，而是提示用户去设置页下载/导入运行时包，或在确有需要时执行 `后台安装 / 更新`。
 
 ## VoxCPM 本地发音
 
@@ -163,7 +163,7 @@ VoxCPM2 预构建运行时包不追求“任意 Windows 机器都能跑”，而
 - 推荐 `8 GB+ VRAM`
 - 推荐至少 `15 GB+` 可用磁盘空间
 
-普通用户首选在设置页点击 `导入 VoxCPM 运行时包`，从 GitHub Release 下载并选择与当前环境匹配的 zip，例如 `voxcpm2-runtime-win-x64-cu124-r1.zip`。导入成功后，运行时仍落在 `<软件目录>\tts\voxcpm`，并继续通过本地 `127.0.0.1` companion process 提供发音服务。
+普通用户首选在设置页点击 `下载并导入运行时包`，由应用从 ModelScope 下载与当前环境匹配的运行时包和模型包。也可以手动下载后分别通过 `导入 VoxCPM 运行时包` 与 `导入模型包` 导入。导入成功后，运行时仍落在 `<软件目录>\tts\voxcpm`，并继续通过本地 `127.0.0.1` companion process 提供发音服务。
 
 如果你的机器不在这个支持矩阵内，或者手头没有匹配的 runtime zip，可以继续使用 `后台安装 / 更新` 作为兼容/兜底方案；但这条路径仍然依赖目标机器上的 Python、PyTorch/CUDA 和模型下载环境，稳定性不如预构建运行时包。
 

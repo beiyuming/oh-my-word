@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import ctypes
 import logging
@@ -52,6 +52,11 @@ from .words import (
     load_word_catalog,
     select_next_word,
 )
+
+VOXCPM_MODELSCOPE_NAMESPACE = "borealis"
+VOXCPM_MODELSCOPE_REPOSITORY = "oh-my-word-voxcpm2-runtime"
+VOXCPM_MODELSCOPE_RUNTIME_FILENAME = "voxcpm2-runtime-win-x64-cu130-r1.zip"
+VOXCPM_MODELSCOPE_MIN_DRIVER_VERSION = "580"
 
 
 @dataclass(slots=True)
@@ -277,6 +282,10 @@ class AppController(QObject):
         self._last_tts_notice_key: str | None = None
         self._last_tts_notice_at = 0.0
         self._tts_request_serial = 0
+        self._pending_auto_pronounce_word: str | None = None
+        self._auto_pronounce_timer = QTimer(self)
+        self._auto_pronounce_timer.setSingleShot(True)
+        self._auto_pronounce_timer.timeout.connect(self._trigger_auto_pronounce)
         self.card_popup: CardPopup | None = None
         self.barrage_popup: BarragePopup | None = None
 
@@ -301,6 +310,7 @@ class AppController(QObject):
         self.learning_state = self.learning_state_store.load()
         self.voxcpm_service = self._create_voxcpm_service_manager()
         self.voxcpm_service.status_changed.connect(self._on_voxcpm_status_changed)
+        self.voxcpm_service.download_progress.connect(self._on_voxcpm_download_progress)
 
         catalog_result = load_word_catalog(self._paths.wordbooks_dir)
         self.catalog = catalog_result.catalog
@@ -364,6 +374,10 @@ class AppController(QObject):
             self.settings_window.import_wordbook_requested.connect(self.import_wordbook)
             self.settings_window.download_wordbook_requested.connect(self.download_recommended_wordbook)
             self.settings_window.voxcpm_runtime_import_requested.connect(self.import_voxcpm_runtime_package)
+            self.settings_window.voxcpm_runtime_download_requested.connect(
+                self.download_and_import_voxcpm_runtime_bundle
+            )
+            self.settings_window.voxcpm_model_import_requested.connect(self.import_voxcpm_model_package)
             self.settings_window.voxcpm_install_requested.connect(self.install_voxcpm_from_settings)
             self.settings_window.voxcpm_start_requested.connect(self.start_voxcpm_service_from_settings)
             self.settings_window.voxcpm_stop_requested.connect(self.stop_voxcpm_service)
@@ -440,6 +454,7 @@ class AppController(QObject):
     def pronounce_text(self, text: str) -> None:
         if self.current_word is None or self.settings.mute_pronunciation or self.tts is None:
             return
+        self._cancel_auto_pronounce()
         if self._maybe_start_voxcpm_for_pronunciation():
             return
         state = self.tts.initialization_state
@@ -592,6 +607,7 @@ class AppController(QObject):
                 ),
                 update_recent=True,
             )
+        self._schedule_auto_pronounce(word.word)
 
     def _save_settings_from_dialog(self) -> None:
         if self.settings_window is None or self.settings_store is None:
@@ -760,6 +776,37 @@ class AppController(QObject):
                 "VoxCPM 运行时包导入成功。" if imported else self.voxcpm_service.status().message,
             )
 
+    def import_voxcpm_model_package(self) -> None:
+        source, _ = QFileDialog.getOpenFileName(
+            self.settings_window,
+            "导入 VoxCPM 模型包",
+            str(self._paths.root_dir),
+            "VoxCPM 模型包 (*.zip)",
+        )
+        if not source:
+            return
+        self._apply_open_settings_dialog_values()
+        if self.voxcpm_service is None:
+            return
+        imported = self.voxcpm_service.import_model_package(Path(source))
+        self._refresh_voxcpm_status_in_settings()
+        if self.tray is not None:
+            self.tray.show_message(
+                "oh my word",
+                "VoxCPM 模型包导入成功。" if imported else self.voxcpm_service.status().message,
+            )
+
+    def download_and_import_voxcpm_runtime_bundle(self) -> None:
+        self._apply_open_settings_dialog_values()
+        if self.voxcpm_service is None:
+            return
+        self.voxcpm_service.download_and_import_runtime_bundle(
+            namespace=VOXCPM_MODELSCOPE_NAMESPACE,
+            repo_name=VOXCPM_MODELSCOPE_REPOSITORY,
+            runtime_filename=VOXCPM_MODELSCOPE_RUNTIME_FILENAME,
+            min_driver_version=VOXCPM_MODELSCOPE_MIN_DRIVER_VERSION,
+        )
+
     def start_voxcpm_service_from_settings(self) -> None:
         self._apply_open_settings_dialog_values()
         if self.voxcpm_service is None:
@@ -839,6 +886,10 @@ class AppController(QObject):
     def _show_voxcpm_notice(self, message: str | None) -> None:
         if message and self.tray is not None:
             self.tray.show_message("oh my word", message)
+
+    def _on_voxcpm_download_progress(self, stage: str) -> None:
+        if self.settings_window is not None:
+            self.settings_window.set_voxcpm_download_progress(stage)
 
     def _on_voxcpm_status_changed(self, status: VoxCpmServiceStatus) -> None:
         if self.settings_window is not None:
@@ -941,6 +992,7 @@ class AppController(QObject):
             self._request_fresh_word(manual=True)
 
     def _on_popup_closed(self) -> None:
+        self._cancel_auto_pronounce()
         self.current_word = None
 
     def _on_popup_dismissed(self) -> None:
@@ -956,6 +1008,7 @@ class AppController(QObject):
         )
 
     def _close_active_popup(self) -> None:
+        self._cancel_auto_pronounce()
         if self.card_popup is not None and self.card_popup.isVisible():
             self.card_popup.close()
         if self.barrage_popup is not None and self.barrage_popup.isVisible():
@@ -1035,6 +1088,32 @@ class AppController(QObject):
         self._last_tts_notice_key = notice_key
         self._last_tts_notice_at = now
         self.tray.show_message("oh my word", message)
+
+    def _schedule_auto_pronounce(self, word_key: str) -> None:
+        self._cancel_auto_pronounce()
+        if not self.settings.auto_pronounce_on_popup or self.settings.mute_pronunciation:
+            return
+        self._pending_auto_pronounce_word = word_key
+        delay_ms = int(round(self.settings.auto_pronounce_delay_seconds * 1000))
+        self._auto_pronounce_timer.start(delay_ms)
+
+    def _cancel_auto_pronounce(self) -> None:
+        self._pending_auto_pronounce_word = None
+        self._auto_pronounce_timer.stop()
+
+    def _trigger_auto_pronounce(self) -> None:
+        word_key = self._pending_auto_pronounce_word
+        self._pending_auto_pronounce_word = None
+        if (
+            word_key is None
+            or self.current_word is None
+            or self.current_word.word != word_key
+            or not self._has_active_popup()
+            or self.settings.mute_pronunciation
+            or not self.settings.auto_pronounce_on_popup
+        ):
+            return
+        self.pronounce_current_word()
 
     def _tts_status_message(self, state: TtsInitializationState) -> str | None:
         if self.tts is None:

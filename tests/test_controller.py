@@ -225,6 +225,50 @@ class ControllerPopupActionTests(unittest.TestCase):
 
         controller.pronounce_text.assert_called_once_with("Focus on review.")
 
+    def test_show_word_schedules_auto_pronounce_when_enabled(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings(
+            auto_pronounce_on_popup=True,
+            auto_pronounce_delay_seconds=1.25,
+        )
+        controller.card_popup = Mock()
+        controller.barrage_popup = Mock()
+        controller.study_store = Mock()
+        controller._auto_pronounce_timer = Mock()
+        entry = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus now.", "现在专注。")
+
+        controller._show_word(entry)
+
+        controller._auto_pronounce_timer.start.assert_called_once_with(1250)
+
+    def test_pronounce_text_cancels_pending_auto_pronounce(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings(auto_pronounce_on_popup=True)
+        controller.current_word = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus now.", "现在专注。")
+        controller.tts = Mock()
+        controller.tts.initialization_state = TtsInitializationState.READY
+        controller.tts.speak.return_value = True
+        controller.study_store = Mock()
+        controller._auto_pronounce_timer = Mock()
+        controller._pending_auto_pronounce_word = "focus"
+
+        controller.pronounce_text("focus")
+
+        controller._auto_pronounce_timer.stop.assert_called_once_with()
+
+    def test_auto_pronounce_timeout_ignores_closed_popup(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings(auto_pronounce_on_popup=True)
+        controller.current_word = WordEntry("focus", "/f/", "verb", ["聚焦"], "Focus now.", "现在专注。")
+        controller.card_popup = Mock(isVisible=Mock(return_value=False))
+        controller.barrage_popup = Mock(isVisible=Mock(return_value=False))
+        controller.pronounce_current_word = Mock()
+        controller._pending_auto_pronounce_word = "focus"
+
+        controller._trigger_auto_pronounce()
+
+        controller.pronounce_current_word.assert_not_called()
+
     def test_pronounce_failure_does_not_record_pronounced_at(self) -> None:
         controller = AppController(self.app)
         controller.settings = AppSettings()
@@ -522,6 +566,39 @@ class ControllerPopupActionTests(unittest.TestCase):
         controller.settings_store.save.assert_called_once_with(current_settings)
         controller.voxcpm_service.import_runtime_package.assert_called_once_with(Path("D:\\Downloads\\runtime.zip"))
         controller.tray.show_message.assert_called_once_with("oh my word", "VoxCPM 运行时包导入成功。")
+
+    def test_import_voxcpm_model_package_uses_file_dialog_and_manager(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings()
+        controller.settings_store = Mock()
+        controller.settings_window = Mock()
+        current_settings = AppSettings()
+        controller.settings_window.get_settings.return_value = current_settings
+        controller.settings_store.save.return_value = current_settings
+        controller.tray = Mock()
+        controller.voxcpm_service = Mock()
+        controller.voxcpm_service.import_model_package.return_value = True
+
+        with patch("app.controller.QFileDialog.getOpenFileName", return_value=("D:\\Downloads\\model.zip", "zip")):
+            controller.import_voxcpm_model_package()
+
+        controller.voxcpm_service.import_model_package.assert_called_once_with(Path("D:\\Downloads\\model.zip"))
+        controller.tray.show_message.assert_called_once_with("oh my word", "VoxCPM 模型包导入成功。")
+
+    def test_download_voxcpm_runtime_bundle_uses_manager(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings()
+        controller.settings_store = Mock()
+        controller.settings_window = Mock()
+        current_settings = AppSettings()
+        controller.settings_window.get_settings.return_value = current_settings
+        controller.settings_store.save.return_value = current_settings
+        controller.tray = Mock()
+        controller.voxcpm_service = Mock()
+
+        controller.download_and_import_voxcpm_runtime_bundle()
+
+        controller.voxcpm_service.download_and_import_runtime_bundle.assert_called_once()
 
     def test_create_tts_service_passes_voxcpm_stream_prebuffer_seconds(self) -> None:
         controller = AppController(self.app)

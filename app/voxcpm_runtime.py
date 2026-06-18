@@ -8,6 +8,7 @@ from typing import Mapping
 from zipfile import ZipFile
 
 RUNTIME_MANIFEST_FILENAME = "runtime_manifest.json"
+MODEL_MANIFEST_FILENAME = "model_manifest.json"
 
 
 @dataclass(slots=True, frozen=True)
@@ -22,7 +23,20 @@ class VoxCpmRuntimeManifest:
     torch_version: str
     model_id: str
     model_version: str
+    model_package_id: str
+    model_package_filename: str
     expected_layout_version: int
+    package_size: int
+    file_hashes: dict[str, str]
+    built_at: str
+
+
+@dataclass(slots=True, frozen=True)
+class VoxCpmModelManifest:
+    model_id: str
+    model_version: str
+    model_package_filename: str
+    expected_model_dir: str
     package_size: int
     file_hashes: dict[str, str]
     built_at: str
@@ -45,7 +59,19 @@ _REQUIRED_MANIFEST_FIELDS = {
     "torch_version",
     "model_id",
     "model_version",
+    "model_package_id",
+    "model_package_filename",
     "expected_layout_version",
+    "package_size",
+    "file_hashes",
+    "built_at",
+}
+
+_REQUIRED_MODEL_MANIFEST_FIELDS = {
+    "model_id",
+    "model_version",
+    "model_package_filename",
+    "expected_model_dir",
     "package_size",
     "file_hashes",
     "built_at",
@@ -59,7 +85,6 @@ _REQUIRED_RUNTIME_FILES = (
 
 _REQUIRED_RUNTIME_PREFIXES = (
     "runtime/service/",
-    "runtime/models/",
 )
 
 
@@ -87,6 +112,17 @@ def load_runtime_manifest_from_path(path: Path) -> VoxCpmRuntimeManifest:
     return _manifest_from_payload(payload)
 
 
+def load_model_manifest_from_zip(zip_path: Path) -> VoxCpmModelManifest:
+    with ZipFile(zip_path) as archive:
+        payload = json.loads(archive.read("model_manifest.json").decode("utf-8"))
+    return _model_manifest_from_payload(payload)
+
+
+def load_model_manifest_from_path(path: Path) -> VoxCpmModelManifest:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return _model_manifest_from_payload(payload)
+
+
 def write_runtime_manifest(runtime_root: Path, manifest: VoxCpmRuntimeManifest) -> Path:
     path = runtime_root / RUNTIME_MANIFEST_FILENAME
     path.write_text(
@@ -102,7 +138,31 @@ def write_runtime_manifest(runtime_root: Path, manifest: VoxCpmRuntimeManifest) 
                 "torch_version": manifest.torch_version,
                 "model_id": manifest.model_id,
                 "model_version": manifest.model_version,
+                "model_package_id": manifest.model_package_id,
+                "model_package_filename": manifest.model_package_filename,
                 "expected_layout_version": manifest.expected_layout_version,
+                "package_size": manifest.package_size,
+                "file_hashes": manifest.file_hashes,
+                "built_at": manifest.built_at,
+            },
+            ensure_ascii=True,
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def write_model_manifest(model_root: Path, manifest: VoxCpmModelManifest) -> Path:
+    path = model_root / MODEL_MANIFEST_FILENAME
+    path.write_text(
+        json.dumps(
+            {
+                "model_id": manifest.model_id,
+                "model_version": manifest.model_version,
+                "model_package_filename": manifest.model_package_filename,
+                "expected_model_dir": manifest.expected_model_dir,
                 "package_size": manifest.package_size,
                 "file_hashes": manifest.file_hashes,
                 "built_at": manifest.built_at,
@@ -120,6 +180,12 @@ def extract_runtime_zip_to_staging(zip_path: Path, staging_root: Path) -> Path:
     with ZipFile(zip_path) as archive:
         archive.extractall(staging_root)
     return staging_root / "runtime"
+
+
+def extract_model_zip_to_staging(zip_path: Path, staging_root: Path) -> Path:
+    with ZipFile(zip_path) as archive:
+        archive.extractall(staging_root)
+    return staging_root / "models"
 
 
 def validate_runtime_environment(
@@ -163,7 +229,24 @@ def _manifest_from_payload(payload: Mapping[str, object]) -> VoxCpmRuntimeManife
         torch_version=str(payload["torch_version"]),
         model_id=str(payload["model_id"]),
         model_version=str(payload["model_version"]),
+        model_package_id=str(payload["model_package_id"]),
+        model_package_filename=str(payload["model_package_filename"]),
         expected_layout_version=int(payload["expected_layout_version"]),
+        package_size=int(payload["package_size"]),
+        file_hashes={str(key): str(value) for key, value in dict(payload["file_hashes"]).items()},
+        built_at=str(payload["built_at"]),
+    )
+
+
+def _model_manifest_from_payload(payload: Mapping[str, object]) -> VoxCpmModelManifest:
+    missing = sorted(_REQUIRED_MODEL_MANIFEST_FIELDS - payload.keys())
+    if missing:
+        raise ValueError(f"Model manifest is missing fields: {', '.join(missing)}")
+    return VoxCpmModelManifest(
+        model_id=str(payload["model_id"]),
+        model_version=str(payload["model_version"]),
+        model_package_filename=str(payload["model_package_filename"]),
+        expected_model_dir=str(payload["expected_model_dir"]),
         package_size=int(payload["package_size"]),
         file_hashes={str(key): str(value) for key, value in dict(payload["file_hashes"]).items()},
         built_at=str(payload["built_at"]),
@@ -193,5 +276,28 @@ def validate_runtime_zip_layout(
             actual_hash = hashlib.sha256(archive.read(relative_path)).hexdigest()
             if actual_hash != expected_hash.lower():
                 return VoxCpmRuntimeValidationResult(False, f"Runtime package hash mismatch for {relative_path}.")
+
+    return VoxCpmRuntimeValidationResult(True, "ok")
+
+
+def validate_model_zip_layout(
+    zip_path: Path,
+    manifest: VoxCpmModelManifest,
+) -> VoxCpmRuntimeValidationResult:
+    with ZipFile(zip_path) as archive:
+        names = set(archive.namelist())
+        expected_prefix = f"models/{manifest.expected_model_dir}/"
+        if not any(name.startswith(expected_prefix) for name in names):
+            return VoxCpmRuntimeValidationResult(
+                False,
+                f"Model package is missing required content under {expected_prefix}",
+            )
+
+        for relative_path, expected_hash in manifest.file_hashes.items():
+            if relative_path not in names:
+                return VoxCpmRuntimeValidationResult(False, f"Model package is missing hashed file: {relative_path}")
+            actual_hash = hashlib.sha256(archive.read(relative_path)).hexdigest()
+            if actual_hash != expected_hash.lower():
+                return VoxCpmRuntimeValidationResult(False, f"Model package hash mismatch for {relative_path}.")
 
     return VoxCpmRuntimeValidationResult(True, "ok")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import platform
@@ -15,13 +16,20 @@ from urllib.request import Request, urlopen
 from PySide6.QtCore import QObject, Signal
 
 from .voxcpm_runtime import (
+    MODEL_MANIFEST_FILENAME,
     RUNTIME_MANIFEST_FILENAME,
+    VoxCpmModelManifest,
     VoxCpmRuntimeManifest,
+    extract_model_zip_to_staging,
     extract_runtime_zip_to_staging,
+    load_model_manifest_from_path,
+    load_model_manifest_from_zip,
     load_runtime_manifest_from_path,
     load_runtime_manifest_from_zip,
+    validate_model_zip_layout,
     validate_runtime_environment,
     validate_runtime_zip_layout,
+    write_model_manifest,
     write_runtime_manifest,
 )
 
@@ -54,6 +62,7 @@ class VoxCpmServiceStatus:
 
 class VoxCpmServiceManager(QObject):
     status_changed = Signal(object)
+    download_progress = Signal(str)
 
     def __init__(
         self,
@@ -88,6 +97,7 @@ class VoxCpmServiceManager(QObject):
         self._install_log_handle: IO[str] | None = None
         self._message = ""
         self._health_running = False
+        self._download_active = False
 
     @property
     def log_path(self) -> Path:
@@ -238,9 +248,216 @@ class VoxCpmServiceManager(QObject):
         self._emit_status()
         return True
 
+    def import_model_package(self, package_path: Path) -> bool:
+        if self.is_installing():
+            self._message = "VoxCPM 正在安装中。"
+            self._emit_status()
+            return False
+        if self.is_running():
+            self._message = "请先停止当前 VoxCPM 服务，再导入模型包。"
+            self._emit_status()
+            return False
+        if not self.is_installed():
+            self._message = "请先导入 VoxCPM 运行时包。"
+            self._emit_status()
+            return False
+
+        try:
+            manifest = load_model_manifest_from_zip(package_path)
+            layout_result = validate_model_zip_layout(package_path, manifest)
+            if not layout_result.ok:
+                self._message = layout_result.message
+                self._emit_status()
+                return False
+
+            model_parent = self._model_cache_root.parent
+            model_parent.mkdir(parents=True, exist_ok=True)
+            staging_root = model_parent / f"{self._model_cache_root.name}.model-staging"
+            if staging_root.exists():
+                shutil.rmtree(staging_root)
+            model_root = extract_model_zip_to_staging(package_path, staging_root)
+            write_model_manifest(model_root, manifest)
+
+            backup_root = model_parent / f"{self._model_cache_root.name}.backup"
+            if backup_root.exists():
+                shutil.rmtree(backup_root, ignore_errors=True)
+            if self._model_cache_root.exists():
+                self._model_cache_root.rename(backup_root)
+            try:
+                model_root.rename(self._model_cache_root)
+                shutil.rmtree(staging_root, ignore_errors=True)
+            except Exception:
+                if self._model_cache_root.exists():
+                    shutil.rmtree(self._model_cache_root, ignore_errors=True)
+                if backup_root.exists():
+                    backup_root.rename(self._model_cache_root)
+                shutil.rmtree(staging_root, ignore_errors=True)
+                raise
+
+        except Exception as exc:
+            self._message = f"导入 VoxCPM 模型包失败：{exc}"
+            self._emit_status()
+            return False
+
+        self._message = f"已导入 VoxCPM 模型包：{manifest.model_version}"
+        self._emit_status()
+        return True
+
+    def download_and_import_runtime_bundle(
+        self,
+        *,
+        namespace: str,
+        repo_name: str,
+        runtime_filename: str,
+        min_driver_version: str,
+    ) -> None:
+        """Start async download+import.  Returns immediately; progress via download_progress, result via status_changed."""
+        if self._download_active:
+            return
+        if self.is_installing():
+            self._message = "VoxCPM 正在安装中。"
+            self._emit_status()
+            return
+        if self.is_running():
+            self._message = "请先停止当前 VoxCPM 服务，再下载运行时包。"
+            self._emit_status()
+            return
+
+        environment_result = validate_runtime_environment(
+            VoxCpmRuntimeManifest(
+                runtime_id=runtime_filename,
+                runtime_version="download",
+                target_os="windows",
+                target_arch="x64",
+                cuda_tag="cu130",
+                min_driver_version=min_driver_version,
+                python_version="3.11",
+                torch_version="",
+                model_id="",
+                model_version="",
+                model_package_id="",
+                model_package_filename="",
+                expected_layout_version=1,
+                package_size=1,
+                file_hashes={},
+                built_at="",
+            ),
+            self._environment_probe(),
+        )
+        if not environment_result.ok:
+            self._message = environment_result.message
+            self._emit_status()
+            return
+
+        import threading
+
+        self._download_active = True
+        self._message = "正在准备下载 VoxCPM 运行时包..."
+        self._emit_status()
+        threading.Thread(
+            target=self._download_and_import_runtime_bundle_sync,
+            args=(namespace, repo_name, runtime_filename, min_driver_version),
+            daemon=True,
+        ).start()
+
+    def _download_and_import_runtime_bundle_sync(
+        self,
+        namespace: str,
+        repo_name: str,
+        runtime_filename: str,
+        min_driver_version: str,
+    ) -> None:
+        """Synchronous body; safe to call from a background thread."""
+        download_root = self._install_root.parent / f"{self._install_root.name}.downloads"
+        try:
+            self.download_progress.emit(f"正在下载 {runtime_filename} ...")
+            runtime_zip_path = self._download_modelscope_asset(
+                namespace=namespace,
+                repo_name=repo_name,
+                filename=runtime_filename,
+                download_root=download_root,
+            )
+            runtime_manifest = load_runtime_manifest_from_zip(runtime_zip_path)
+            self.download_progress.emit("正在导入运行时包...")
+            if not self.import_runtime_package(runtime_zip_path):
+                return
+            if runtime_manifest.model_package_filename:
+                self.download_progress.emit(f"正在下载 {runtime_manifest.model_package_filename} ...")
+                model_zip_path = self._download_modelscope_asset(
+                    namespace=namespace,
+                    repo_name=repo_name,
+                    filename=runtime_manifest.model_package_filename,
+                    download_root=download_root,
+                )
+                self.download_progress.emit("正在导入模型包...")
+                if not self.import_model_package(model_zip_path):
+                    return
+
+            self._message = f"已下载并导入 VoxCPM 运行时与模型：{runtime_manifest.runtime_id}"
+        except Exception as exc:
+            self._message = f"下载 VoxCPM 运行时包失败：{exc}"
+        finally:
+            self._download_active = False
+            self._emit_status()
+
+    def _download_and_import_runtime_bundle_blocking(
+        self,
+        *,
+        namespace: str,
+        repo_name: str,
+        runtime_filename: str,
+        min_driver_version: str,
+    ) -> bool:
+        """Blocking convenience wrapper for tests and synchronous callers."""
+        if self.is_installing():
+            self._message = "VoxCPM 正在安装中。"
+            self._emit_status()
+            return False
+        if self.is_running():
+            self._message = "请先停止当前 VoxCPM 服务，再下载运行时包。"
+            self._emit_status()
+            return False
+
+        environment_result = validate_runtime_environment(
+            VoxCpmRuntimeManifest(
+                runtime_id=runtime_filename,
+                runtime_version="download",
+                target_os="windows",
+                target_arch="x64",
+                cuda_tag="cu130",
+                min_driver_version=min_driver_version,
+                python_version="3.11",
+                torch_version="",
+                model_id="",
+                model_version="",
+                model_package_id="",
+                model_package_filename="",
+                expected_layout_version=1,
+                package_size=1,
+                file_hashes={},
+                built_at="",
+            ),
+            self._environment_probe(),
+        )
+        if not environment_result.ok:
+            self._message = environment_result.message
+            self._emit_status()
+            return False
+
+        self._download_active = True
+        self._download_and_import_runtime_bundle_sync(
+            namespace, repo_name, runtime_filename, min_driver_version
+        )
+        return self._download_active is False and "下载" in self._message
+
+
     def start_service(self) -> bool:
         if not self.is_installed():
             self._message = "VoxCPM 尚未安装。"
+            self._emit_status()
+            return False
+        if self._runtime_manifest_path().exists() and not self._model_manifest_path().exists():
+            self._message = "VoxCPM 模型尚未导入。"
             self._emit_status()
             return False
         if self._service_process is not None and self._service_process.poll() is None:
@@ -436,6 +653,9 @@ class VoxCpmServiceManager(QObject):
     def _runtime_manifest_path(self) -> Path:
         return self._install_root / RUNTIME_MANIFEST_FILENAME
 
+    def _model_manifest_path(self) -> Path:
+        return self._model_cache_root / MODEL_MANIFEST_FILENAME
+
     def _detect_runtime_metadata(self) -> tuple[str, VoxCpmRuntimeManifest | None]:
         manifest_path = self._runtime_manifest_path()
         if manifest_path.exists():
@@ -499,6 +719,69 @@ class VoxCpmServiceManager(QObject):
         if result.returncode == 0:
             return True, output or "ok"
         return False, output or "VoxCPM 运行时自检失败。"
+
+    def _build_modelscope_asset_url(self, *, namespace: str, repo_name: str, filename: str) -> str:
+        return (
+            f"https://modelscope.cn/api/v1/models/{namespace}/{repo_name}/repo"
+            f"?Revision=master&FilePath={filename}"
+        )
+
+    def _download_modelscope_asset(
+        self,
+        *,
+        namespace: str,
+        repo_name: str,
+        filename: str,
+        download_root: Path,
+        on_chunk: Callable[[int, int], None] | None = None,
+    ) -> Path:
+        download_root.mkdir(parents=True, exist_ok=True)
+        asset_path = download_root / filename
+        sha_path = download_root / f"{filename}.sha256"
+        self._message = f"正在下载 {filename} ..."
+        self._emit_status()
+        self._download_url_to_path(
+            self._build_modelscope_asset_url(namespace=namespace, repo_name=repo_name, filename=filename),
+            asset_path,
+            on_chunk=on_chunk,
+        )
+        self._download_url_to_path(
+            self._build_modelscope_asset_url(namespace=namespace, repo_name=repo_name, filename=f"{filename}.sha256"),
+            sha_path,
+        )
+        self._verify_downloaded_sha(asset_path, sha_path)
+        return asset_path
+
+    def _download_url_to_path(
+        self, url: str, destination: Path,
+        on_chunk: Callable[[int, int], None] | None = None,
+    ) -> None:
+        request = Request(url)
+        with self._urlopen(request, timeout=30) as response:
+            if on_chunk is None:
+                destination.write_bytes(response.read())
+                return
+
+            total_str = response.headers.get("Content-Length")
+            total = int(total_str) if total_str else 0
+            downloaded = 0
+            with open(destination, "wb") as f:
+                while True:
+                    chunk = response.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    on_chunk(downloaded, total)
+
+    def _verify_downloaded_sha(self, asset_path: Path, sha_path: Path) -> None:
+        sha_text = sha_path.read_text(encoding="utf-8").strip()
+        if not sha_text:
+            raise ValueError(f"校验文件为空：{sha_path.name}")
+        expected_hash = sha_text.split()[0].strip().lower()
+        actual_hash = hashlib.sha256(asset_path.read_bytes()).hexdigest()
+        if actual_hash != expected_hash:
+            raise ValueError(f"{asset_path.name} 校验失败。")
 
     def _python_executable(self) -> Path:
         return self._install_root / ".venv" / "Scripts" / "python.exe"
