@@ -38,6 +38,7 @@ ProcessFactory = Callable[..., Any]
 UrlopenFunc = Callable[..., Any]
 EndpointProcessFinder = Callable[[int], Sequence["EndpointProcess"]]
 ProcessTerminator = Callable[[int], None]
+_LOCAL_MODEL_DIRNAME = "VoxCPM2-local"
 
 
 @dataclass(slots=True, frozen=True)
@@ -115,6 +116,7 @@ class VoxCpmServiceManager(QObject):
         self._model_cache_root = Path(model_cache_root)
         self._endpoint = endpoint.rstrip("/")
         self._use_model_mirror = use_model_mirror
+        self._rewrite_imported_runtime_scripts_if_needed()
         self._emit_status()
 
     def is_installed(self) -> bool:
@@ -178,6 +180,7 @@ class VoxCpmServiceManager(QObject):
                 shutil.rmtree(staging_root)
             runtime_root = extract_runtime_zip_to_staging(package_path, staging_root)
             write_runtime_manifest(runtime_root, manifest)
+            self._rewrite_imported_runtime_scripts(runtime_root)
 
             health_ok, health_message = self._runtime_healthcheck_runner(runtime_root)
             if not health_ok:
@@ -758,20 +761,33 @@ class VoxCpmServiceManager(QObject):
         }
 
     def _run_runtime_healthcheck(self, runtime_root: Path) -> tuple[bool, str]:
-        script_path = runtime_root / "healthcheck.ps1"
-        if not script_path.exists():
-            return False, f"运行时缺少健康检查脚本：{script_path}"
+        python_path = runtime_root / ".venv" / "Scripts" / "python.exe"
+        service_server_path = runtime_root / "service" / "server.py"
+        if not python_path.exists():
+            return False, f"运行时缺少 Python：{python_path}"
+        if not service_server_path.exists():
+            return False, f"运行时缺少服务入口：{service_server_path}"
+
+        env = os.environ.copy()
+        env["HF_HOME"] = str(self._model_cache_root)
+        env["HF_HUB_CACHE"] = str(self._model_cache_root / "hub")
+        env["VOXCPM_MODEL_ID"] = str(self._model_cache_root / _LOCAL_MODEL_DIRNAME)
         kwargs: dict[str, Any] = {
             "cwd": runtime_root,
             "stdout": subprocess.PIPE,
             "stderr": subprocess.STDOUT,
             "text": True,
             "check": False,
+            "env": env,
         }
         if hasattr(subprocess, "CREATE_NO_WINDOW"):
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         result = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script_path)],
+            [
+                str(python_path),
+                "-c",
+                "import service.server; print('runtime import ok')",
+            ],
             **kwargs,
         )
         output = (result.stdout or "").strip()
@@ -858,3 +874,66 @@ class VoxCpmServiceManager(QObject):
 
     def _emit_status(self) -> None:
         self.status_changed.emit(self.status())
+
+    def _rewrite_imported_runtime_scripts_if_needed(self) -> None:
+        if not self._runtime_manifest_path().exists():
+            return
+        if not self._install_root.exists():
+            return
+        self._rewrite_imported_runtime_scripts(self._install_root)
+
+    def _rewrite_imported_runtime_scripts(self, runtime_root: Path) -> None:
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        (runtime_root / "start_service.ps1").write_text(
+            self._build_imported_start_script(),
+            encoding="utf-8",
+        )
+        (runtime_root / "healthcheck.ps1").write_text(
+            self._build_imported_healthcheck_script(),
+            encoding="utf-8",
+        )
+
+    def _build_imported_start_script(self) -> str:
+        model_cache_root = self._escape_powershell_single_quoted(str(self._model_cache_root))
+        model_hub_cache_root = self._escape_powershell_single_quoted(str(self._model_cache_root / "hub"))
+        local_model_root = self._escape_powershell_single_quoted(str(self._model_cache_root / _LOCAL_MODEL_DIRNAME))
+        host, port = self._local_endpoint_host_port()
+        return "\n".join(
+            [
+                '$ErrorActionPreference = "Stop"',
+                '$scriptRoot = Split-Path -Parent $PSCommandPath',
+                '$venvPython = Join-Path $scriptRoot ".venv\\Scripts\\python.exe"',
+                'if (-not (Test-Path -LiteralPath $venvPython)) { throw "VoxCPM runtime python not found: $venvPython" }',
+                f"$env:HF_HOME = '{model_cache_root}'",
+                f"$env:HF_HUB_CACHE = '{model_hub_cache_root}'",
+                f"$env:VOXCPM_MODEL_ID = '{local_model_root}'",
+                "Set-Location -LiteralPath $scriptRoot",
+                f'& $venvPython -m uvicorn service.server:app --host "{host}" --port {port}',
+                "",
+            ]
+        )
+
+    def _build_imported_healthcheck_script(self) -> str:
+        return "\n".join(
+            [
+                f'$r = Invoke-WebRequest -Uri "{self._build_healthcheck_url()}" -UseBasicParsing -TimeoutSec 5',
+                "exit ($r.StatusCode -ne 200)",
+                "",
+            ]
+        )
+
+    def _build_healthcheck_url(self) -> str:
+        host, port = self._local_endpoint_host_port()
+        return f"http://{host}:{port}/health"
+
+    def _local_endpoint_host_port(self) -> tuple[str, int]:
+        parsed = urlparse(self._endpoint)
+        host = parsed.hostname or "127.0.0.1"
+        if host not in {"127.0.0.1", "localhost", "::1"}:
+            host = "127.0.0.1"
+        port = parsed.port or 8808
+        return host, port
+
+    @staticmethod
+    def _escape_powershell_single_quoted(value: str) -> str:
+        return value.replace("'", "''")

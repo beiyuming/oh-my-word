@@ -3,17 +3,18 @@
 from app.version import APP_VERSION, CHANGELOG, formatted_changelog
 
 
-def test_current_version_is_0_1_13() -> None:
-    assert APP_VERSION == "0.1.13"
+def test_current_version_is_0_1_14() -> None:
+    assert APP_VERSION == "0.1.14"
 
 
 def test_changelog_mentions_current_and_prior_updates() -> None:
     text = formatted_changelog()
 
+    assert "v0.1.14" in text
+    assert "直接执行 /health 导致的误报" in text
+    assert "重写 start_service.ps1 和 healthcheck.ps1" in text
+    assert "错误模型目录或错误端口" in text
     assert "v0.1.13" in text
-    assert "下载并导入模型包" in text
-    assert "ModelScope 路径字段" in text
-    assert "安装器移除旧的 VoxCPM 下载/安装入口" in text
     assert "v0.1.12" in text
     assert "v0.1.9" in text
     assert "无法创建 venv" in text
@@ -48,4 +49,4 @@ def test_changelog_mentions_current_and_prior_updates() -> None:
     assert "安装包文件名带版本号" in text
     assert "VoxCPM" in text
     assert "流式" in text
-    assert CHANGELOG[0].version == "0.1.13"
+    assert CHANGELOG[0].version == "0.1.14"

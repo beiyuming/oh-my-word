@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 
-APP_VERSION = "0.1.13"
+APP_VERSION = "0.1.14"
 
 
 @dataclass(slots=True, frozen=True)
@@ -15,6 +15,15 @@ class ChangelogEntry:
 
 CHANGELOG: tuple[ChangelogEntry, ...] = (
 
+    ChangelogEntry(
+        version="0.1.14",
+        date="2026-06-18",
+        changes=(
+            "修复导入运行时包时直接执行 /health 导致的误报；现在改为用运行时 Python 自检导入 service 模块。",
+            "导入预构建运行时包后，会重写 start_service.ps1 和 healthcheck.ps1，去掉构建机硬编码路径。",
+            "修复导入后本地服务仍可能指向错误模型目录或错误端口的问题。",
+        ),
+    ),
     ChangelogEntry(
         version="0.1.13",
         date="2026-06-18",

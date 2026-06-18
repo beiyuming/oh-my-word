@@ -384,6 +384,75 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
             self.assertTrue((install_root / ".venv" / "Scripts" / "python.exe").exists())
             self.assertTrue((install_root / "runtime_manifest.json").exists())
 
+    def test_import_runtime_package_rewrites_runtime_scripts_for_current_paths(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            zip_path = root / "runtime.zip"
+            _write_runtime_package(zip_path)
+            install_root = root / "voxcpm"
+            model_cache_root = root / "custom-model-cache"
+
+            manager = VoxCpmServiceManager(
+                install_root=install_root,
+                model_cache_root=model_cache_root,
+                script_root=root / "scripts",
+                endpoint="http://localhost:8899",
+                environment_probe=lambda: {
+                    "target_os": "windows",
+                    "target_arch": "x64",
+                    "has_nvidia_gpu": True,
+                    "driver_version": "552.12",
+                    "free_bytes": 10_000_000,
+                },
+                runtime_healthcheck_runner=lambda _runtime_root: (True, "ok"),
+            )
+
+            self.assertTrue(manager.import_runtime_package(zip_path))
+
+            start_script = (install_root / "start_service.ps1").read_text(encoding="utf-8")
+            healthcheck_script = (install_root / "healthcheck.ps1").read_text(encoding="utf-8")
+            self.assertIn("Split-Path -Parent $PSCommandPath", start_script)
+            self.assertIn(str(model_cache_root), start_script)
+            self.assertIn(str(model_cache_root / "VoxCPM2-local"), start_script)
+            self.assertIn('--host "localhost" --port 8899', start_script)
+            self.assertIn("http://localhost:8899/health", healthcheck_script)
+            self.assertNotEqual(start_script.strip(), "start-service")
+            self.assertNotEqual(healthcheck_script.strip(), "health-check")
+
+    def test_runtime_healthcheck_imports_service_module_with_runtime_python(self) -> None:
+        calls: list[tuple[list[str], dict[str, Any]]] = []
+
+        def fake_run(args: list[str], **kwargs: Any) -> Any:
+            calls.append((args, kwargs))
+            return type("Result", (), {"returncode": 0, "stdout": "runtime import ok"})()
+
+        with (
+            TemporaryDirectory() as tmp_dir,
+            patch("app.voxcpm_service.subprocess.run", side_effect=fake_run),
+        ):
+            root = Path(tmp_dir)
+            runtime_root = root / "runtime"
+            python_path = runtime_root / ".venv" / "Scripts" / "python.exe"
+            service_server_path = runtime_root / "service" / "server.py"
+            python_path.parent.mkdir(parents=True, exist_ok=True)
+            service_server_path.parent.mkdir(parents=True, exist_ok=True)
+            python_path.write_text("", encoding="utf-8")
+            service_server_path.write_text("", encoding="utf-8")
+
+            manager = VoxCpmServiceManager(
+                install_root=root / "voxcpm",
+                model_cache_root=root / "voxcpm" / "models",
+                script_root=root / "scripts",
+            )
+
+            ok, message = manager._run_runtime_healthcheck(runtime_root)
+
+        self.assertTrue(ok)
+        self.assertEqual(message, "runtime import ok")
+        self.assertEqual(calls[0][0][0], str(python_path))
+        self.assertEqual(calls[0][0][1], "-c")
+        self.assertIn("import service.server", calls[0][0][2])
+
     def test_import_model_package_extracts_model_payload(self) -> None:
         with TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)

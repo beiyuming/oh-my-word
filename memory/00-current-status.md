@@ -15,6 +15,10 @@
 
 ## 最近验证
 
+- 2026-06-18 v0.1.14 导入修复：`app/voxcpm_service.py` 已修复预构建运行时包导入时直接执行 `/health` 的误报；当前实现改为使用运行时 `.venv\Scripts\python.exe` 在 staging 目录自检导入 `service.server`，不再要求导入阶段先启动 HTTP 服务。
+- 2026-06-18 v0.1.14 服务脚本修复：导入预构建运行时包后，会重写 `start_service.ps1` 和 `healthcheck.ps1`，去掉构建机硬编码路径，并改为使用当前设置中的模型目录和 endpoint。
+- 2026-06-18 v0.1.14 验证：`py -3.11 -m pytest tests -q` 通过，结果为 188 个测试通过；`.\build\build_installer.ps1` 成功生成 `dist\oh-my-word-setup-v0.1.14.exe`；`dist\oh-my-word-py\oh-my-word-py.exe` Windows 短启动 8 秒后进程仍存活，随后已主动关闭。
+
 - 2026-06-18 v0.1.13 设置页 / 安装器收口：设置页“发音”分类已新增 `下载并导入模型包` 按钮，并接通 `voxcpm_modelscope_namespace`、`voxcpm_modelscope_repository`、`voxcpm_modelscope_runtime_filename`、`voxcpm_modelscope_min_driver_version` 四个可编辑字段；安装器已移除旧的 VoxCPM 下载/安装 UI，仅保留主程序安装、快捷方式和卸载脚本。
 - 2026-06-18 v0.1.13 验证：`py -3.11 -m pytest tests -q` 通过，结果为 186 个测试通过；`.\build\build_installer.ps1` 成功生成 `dist\oh-my-word-setup-v0.1.13.exe`；`dist\oh-my-word-py\oh-my-word-py.exe` Windows 短启动 8 秒后进程仍存活，随后已主动关闭。
 
