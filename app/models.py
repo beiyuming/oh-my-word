@@ -64,6 +64,11 @@ DEFAULT_VOXCPM_INSTALL_ROOT = str(
 )
 DEFAULT_VOXCPM_MODEL_CACHE_ROOT = str(Path(DEFAULT_VOXCPM_INSTALL_ROOT) / "models")
 
+DEFAULT_VOXCPM_MODELSCOPE_NAMESPACE = "borealis"
+DEFAULT_VOXCPM_MODELSCOPE_REPOSITORY = "oh-my-word-voxcpm2-runtime"
+DEFAULT_VOXCPM_MODELSCOPE_RUNTIME_FILENAME = "voxcpm2-runtime-win-x64-cu130-r1.zip"
+DEFAULT_VOXCPM_MODELSCOPE_MIN_DRIVER_VERSION = "580"
+
 DEFAULT_PRONOUNCE_HOTKEY = "Ctrl+Alt+1"
 DEFAULT_TOGGLE_DETAIL_HOTKEY = "Ctrl+Alt+2"
 DEFAULT_TRIGGER_NOW_HOTKEY = "Ctrl+Alt+3"
@@ -99,6 +104,10 @@ class AppSettings:
     voxcpm_use_model_mirror: bool = True
     voxcpm_auto_start: bool = False
     voxcpm_voice_prompt: str = DEFAULT_VOXCPM_VOICE_PROMPT
+    voxcpm_modelscope_namespace: str = DEFAULT_VOXCPM_MODELSCOPE_NAMESPACE
+    voxcpm_modelscope_repository: str = DEFAULT_VOXCPM_MODELSCOPE_REPOSITORY
+    voxcpm_modelscope_runtime_filename: str = DEFAULT_VOXCPM_MODELSCOPE_RUNTIME_FILENAME
+    voxcpm_modelscope_min_driver_version: str = DEFAULT_VOXCPM_MODELSCOPE_MIN_DRIVER_VERSION
     voxcpm_stream_prebuffer_seconds: float = DEFAULT_VOXCPM_STREAM_PREBUFFER_SECONDS
     pronounce_hotkey: str = DEFAULT_PRONOUNCE_HOTKEY
     toggle_detail_hotkey: str = DEFAULT_TOGGLE_DETAIL_HOTKEY

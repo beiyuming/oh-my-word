@@ -15,6 +15,9 @@
 
 ## 最近验证
 
+- 2026-06-18 v0.1.13 设置页 / 安装器收口：设置页“发音”分类已新增 `下载并导入模型包` 按钮，并接通 `voxcpm_modelscope_namespace`、`voxcpm_modelscope_repository`、`voxcpm_modelscope_runtime_filename`、`voxcpm_modelscope_min_driver_version` 四个可编辑字段；安装器已移除旧的 VoxCPM 下载/安装 UI，仅保留主程序安装、快捷方式和卸载脚本。
+- 2026-06-18 v0.1.13 验证：`py -3.11 -m pytest tests -q` 通过，结果为 186 个测试通过；`.\build\build_installer.ps1` 成功生成 `dist\oh-my-word-setup-v0.1.13.exe`；`dist\oh-my-word-py\oh-my-word-py.exe` Windows 短启动 8 秒后进程仍存活，随后已主动关闭。
+
 - 2026-06-08 约束建立：新 guardrail 文件的读序/占位自查未发现未完成占位标记。
 - 2026-06-08 约束建立：`py -3.11 -m pytest tests -q` 通过，结果为 46 个测试通过。
 - 2026-06-08 文档中文化：仓库 Markdown 文档已改为中文说明，旧英文标题扫描无命中。

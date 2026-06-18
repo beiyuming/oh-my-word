@@ -33,15 +33,6 @@ $distDir = Join-Path $projectRoot "dist"
 $stagingDir = Join-Path ([System.IO.Path]::GetTempPath()) ("oh-my-word-installer-build-" + [System.Guid]::NewGuid().ToString("N"))
 $payloadZipName = "$Name-portable.zip"
 $payloadZipPath = Join-Path $stagingDir $payloadZipName
-$voxcpmServiceDir = Join-Path $projectRoot "tools\voxcpm_service"
-$voxcpmServiceZipPath = Join-Path $stagingDir "voxcpm_service.zip"
-$voxcpmServicePayloadFiles = @(
-    "install_local.ps1",
-    "server.py",
-    "engine.py",
-    "requirements.txt",
-    "README.md"
-)
 $sourcePath = Join-Path $stagingDir "InstallerProgram.cs"
 $installerPath = Join-Path $distDir $InstallerName
 $cscPath = "C:\WINDOWS\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
@@ -68,18 +59,6 @@ if (Test-Path -LiteralPath $payloadZipPath) {
     Remove-Item -LiteralPath $payloadZipPath -Force
 }
 Compress-Archive -Path (Join-Path $portableDir "*") -DestinationPath $payloadZipPath -Force
-
-if (-not (Test-Path -LiteralPath (Join-Path $voxcpmServiceDir "install_local.ps1"))) {
-    throw "VoxCPM local setup script not found: $voxcpmServiceDir"
-}
-$voxcpmServicePayloadPaths = foreach ($payloadFile in $voxcpmServicePayloadFiles) {
-    $payloadPath = Join-Path $voxcpmServiceDir $payloadFile
-    if (-not (Test-Path -LiteralPath $payloadPath)) {
-        throw "VoxCPM service payload file not found: $payloadPath"
-    }
-    $payloadPath
-}
-Compress-Archive -Path $voxcpmServicePayloadPaths -DestinationPath $voxcpmServiceZipPath -Force
 
 $installerSource = @"
 using System;
@@ -121,19 +100,12 @@ internal static class Program
     private sealed class InstallerForm : Form
     {
         private readonly TextBox installPathBox;
-        private readonly TextBox voxCpmInstallPathBox;
-        private readonly TextBox voxcpmModelCachePathBox;
         private readonly CheckBox desktopShortcutBox;
         private readonly CheckBox startMenuShortcutBox;
         private readonly CheckBox launchAfterInstallBox;
-        private readonly CheckBox installVoxCpmBox;
-        private readonly CheckBox useHfMirrorBox;
         private readonly Button installButton;
         private readonly ProgressBar progressBar;
         private readonly Label statusLabel;
-        private bool updatingVoxCpmDefaults;
-        private bool voxCpmInstallPathEdited;
-        private bool voxCpmModelCachePathEdited;
 
         public InstallerForm()
         {
@@ -142,14 +114,12 @@ internal static class Program
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
-            ClientSize = new Size(620, 460);
+            ClientSize = new Size(620, 260);
 
             var defaultInstallRoot = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "Programs",
                 "Oh My Word");
-            var defaultVoxCpmInstallRoot = Path.Combine(defaultInstallRoot, "tts", "voxcpm");
-            var defaultVoxCpmModelCacheRoot = Path.Combine(defaultVoxCpmInstallRoot, "models");
 
             var titleLabel = new Label
             {
@@ -187,10 +157,6 @@ internal static class Program
                 Size = new Size(88, 28)
             };
             browseButton.Click += BrowseInstallPath;
-            installPathBox.TextChanged += delegate(object textSender, EventArgs textArgs)
-            {
-                UpdateVoxCpmDefaultPathsFromInstallRoot();
-            };
 
             desktopShortcutBox = new CheckBox
             {
@@ -216,92 +182,9 @@ internal static class Program
                 Location = new Point(380, 146)
             };
 
-            installVoxCpmBox = new CheckBox
-            {
-                Text = "Install local VoxCPM pronunciation engine",
-                Checked = false,
-                AutoSize = true,
-                Location = new Point(20, 176)
-            };
-            installVoxCpmBox.CheckedChanged += ToggleVoxCpmPathControls;
-
-            var voxCpmInstallPathLabel = new Label
-            {
-                Text = "VoxCPM engine folder",
-                AutoSize = true,
-                Location = new Point(38, 204)
-            };
-
-            voxCpmInstallPathBox = new TextBox
-            {
-                Text = defaultVoxCpmInstallRoot,
-                Location = new Point(38, 226),
-                Size = new Size(402, 24)
-            };
-            voxCpmInstallPathBox.TextChanged += delegate(object textSender, EventArgs textArgs)
-            {
-                if (!updatingVoxCpmDefaults)
-                {
-                    voxCpmInstallPathEdited = true;
-                }
-            };
-
-            var browseVoxCpmInstallButton = new Button
-            {
-                Text = "Browse...",
-                Location = new Point(452, 224),
-                Size = new Size(88, 28)
-            };
-            browseVoxCpmInstallButton.Click += BrowseVoxCpmInstallPath;
-
-            var voxCpmModelCachePathLabel = new Label
-            {
-                Text = "VoxCPM model cache folder",
-                AutoSize = true,
-                Location = new Point(38, 258)
-            };
-
-            voxcpmModelCachePathBox = new TextBox
-            {
-                Text = defaultVoxCpmModelCacheRoot,
-                Location = new Point(38, 280),
-                Size = new Size(402, 24)
-            };
-            voxcpmModelCachePathBox.TextChanged += delegate(object textSender, EventArgs textArgs)
-            {
-                if (!updatingVoxCpmDefaults)
-                {
-                    voxCpmModelCachePathEdited = true;
-                }
-            };
-
-            var browseVoxCpmModelCacheButton = new Button
-            {
-                Text = "Browse...",
-                Location = new Point(452, 278),
-                Size = new Size(88, 28)
-            };
-            browseVoxCpmModelCacheButton.Click += BrowseVoxCpmModelCachePath;
-
-            useHfMirrorBox = new CheckBox
-            {
-                Text = "Use model download mirror (ModelScope first, hf-mirror fallback)",
-                Checked = true,
-                AutoSize = true,
-                Location = new Point(38, 314)
-            };
-
-            var voxCpmDescriptionLabel = new Label
-            {
-                Text = "Optional. Downloads several GB and works best with NVIDIA GPU 8 GB+ VRAM. App installation completed even if VoxCPM setup fails.",
-                AutoSize = false,
-                Location = new Point(38, 342),
-                Size = new Size(560, 36)
-            };
-
             progressBar = new ProgressBar
             {
-                Location = new Point(20, 386),
+                Location = new Point(20, 182),
                 Size = new Size(580, 18),
                 Style = ProgressBarStyle.Continuous
             };
@@ -310,13 +193,13 @@ internal static class Program
             {
                 Text = "",
                 AutoSize = true,
-                Location = new Point(20, 412)
+                Location = new Point(20, 208)
             };
 
             installButton = new Button
             {
                 Text = "Install",
-                Location = new Point(420, 424),
+                Location = new Point(420, 214),
                 Size = new Size(84, 28)
             };
             installButton.Click += Install;
@@ -325,7 +208,7 @@ internal static class Program
             {
                 Text = "Cancel",
                 DialogResult = DialogResult.Cancel,
-                Location = new Point(516, 424),
+                Location = new Point(516, 214),
                 Size = new Size(84, 28)
             };
 
@@ -339,15 +222,6 @@ internal static class Program
                 desktopShortcutBox,
                 startMenuShortcutBox,
                 launchAfterInstallBox,
-                installVoxCpmBox,
-                voxCpmInstallPathLabel,
-                voxCpmInstallPathBox,
-                browseVoxCpmInstallButton,
-                voxCpmModelCachePathLabel,
-                voxcpmModelCachePathBox,
-                browseVoxCpmModelCacheButton,
-                useHfMirrorBox,
-                voxCpmDescriptionLabel,
                 progressBar,
                 statusLabel,
                 installButton,
@@ -356,7 +230,6 @@ internal static class Program
 
             AcceptButton = installButton;
             CancelButton = cancelButton;
-            ToggleVoxCpmPathControls(null, EventArgs.Empty);
         }
 
         private void BrowseInstallPath(object sender, EventArgs e)
@@ -373,77 +246,6 @@ internal static class Program
             }
         }
 
-        private void UpdateVoxCpmDefaultPathsFromInstallRoot()
-        {
-            if (string.IsNullOrWhiteSpace(installPathBox.Text))
-            {
-                return;
-            }
-
-            try
-            {
-                updatingVoxCpmDefaults = true;
-                var installRoot = Path.GetFullPath(Environment.ExpandEnvironmentVariables(installPathBox.Text.Trim()));
-                var defaultVoxCpmInstallRoot = Path.Combine(installRoot, "tts", "voxcpm");
-                if (!voxCpmInstallPathEdited)
-                {
-                    voxCpmInstallPathBox.Text = defaultVoxCpmInstallRoot;
-                }
-                if (!voxCpmModelCachePathEdited)
-                {
-                    voxcpmModelCachePathBox.Text = Path.Combine(defaultVoxCpmInstallRoot, "models");
-                }
-            }
-            catch
-            {
-            }
-            finally
-            {
-                updatingVoxCpmDefaults = false;
-            }
-        }
-
-        private void BrowseVoxCpmInstallPath(object sender, EventArgs e)
-        {
-            using (var dialog = new FolderBrowserDialog())
-            {
-                dialog.Description = "Choose the VoxCPM engine folder";
-                dialog.SelectedPath = voxCpmInstallPathBox.Text;
-                dialog.ShowNewFolderButton = true;
-                if (dialog.ShowDialog(this) == DialogResult.OK)
-                {
-                    voxCpmInstallPathEdited = true;
-                    voxCpmInstallPathBox.Text = dialog.SelectedPath;
-                    if (!voxCpmModelCachePathEdited)
-                    {
-                        voxcpmModelCachePathBox.Text = Path.Combine(dialog.SelectedPath, "models");
-                    }
-                }
-            }
-        }
-
-        private void BrowseVoxCpmModelCachePath(object sender, EventArgs e)
-        {
-            using (var dialog = new FolderBrowserDialog())
-            {
-                dialog.Description = "Choose the VoxCPM model cache folder";
-                dialog.SelectedPath = voxcpmModelCachePathBox.Text;
-                dialog.ShowNewFolderButton = true;
-                if (dialog.ShowDialog(this) == DialogResult.OK)
-                {
-                    voxCpmModelCachePathEdited = true;
-                    voxcpmModelCachePathBox.Text = dialog.SelectedPath;
-                }
-            }
-        }
-
-        private void ToggleVoxCpmPathControls(object sender, EventArgs e)
-        {
-            voxCpmInstallPathBox.Enabled = installVoxCpmBox.Checked;
-            voxcpmModelCachePathBox.Enabled = installVoxCpmBox.Checked;
-            useHfMirrorBox.Enabled = installVoxCpmBox.Checked;
-        }
-
         private void Install(object sender, EventArgs e)
         {
             try
@@ -455,21 +257,11 @@ internal static class Program
                 Application.DoEvents();
 
                 var installRoot = NormalizeInstallRoot(installPathBox.Text);
-                var voxCpmInstallRoot = installVoxCpmBox.Checked
-                    ? NormalizeVoxCpmInstallRoot(voxCpmInstallPathBox.Text)
-                    : null;
-                var voxCpmModelCacheRoot = installVoxCpmBox.Checked
-                    ? NormalizeVoxCpmModelCacheRoot(voxcpmModelCachePathBox.Text)
-                    : null;
                 InstallPayload(
                     installRoot,
                     desktopShortcutBox.Checked,
                     startMenuShortcutBox.Checked,
-                    launchAfterInstallBox.Checked,
-                    installVoxCpmBox.Checked,
-                    voxCpmInstallRoot,
-                    voxCpmModelCacheRoot,
-                    useHfMirrorBox.Checked);
+                    launchAfterInstallBox.Checked);
 
                 progressBar.Value = 100;
                 statusLabel.Text = "Installation complete.";
@@ -502,11 +294,7 @@ internal static class Program
             string installRoot,
             bool createDesktopShortcut,
             bool createStartMenuShortcut,
-            bool launchAfterInstall,
-            bool installVoxCpmLocal,
-            string voxCpmInstallRoot,
-            string voxCpmModelCacheRoot,
-            bool useHfMirror)
+            bool launchAfterInstall)
         {
             var startMenuDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -592,14 +380,6 @@ internal static class Program
 
             progressBar.Value = 85;
             Application.DoEvents();
-
-            if (installVoxCpmLocal)
-            {
-                statusLabel.Text = "Starting optional VoxCPM local setup...";
-                Application.DoEvents();
-                RunVoxCpmSetup(voxCpmInstallRoot, voxCpmModelCacheRoot, useHfMirror);
-            }
-
             if (launchAfterInstall)
             {
                 Process.Start(new ProcessStartInfo
@@ -611,125 +391,6 @@ internal static class Program
             }
         }
 
-        private void RunVoxCpmSetup(string voxCpmInstallRoot, string voxCpmModelCacheRoot, bool useHfMirror)
-        {
-            var tempDir = Path.Combine(Path.GetTempPath(), "oh-my-word-voxcpm-" + Guid.NewGuid().ToString("N"));
-            var tempZip = Path.Combine(tempDir, "voxcpm_service.zip");
-            var logPath = Path.Combine(voxCpmInstallRoot, "install.log");
-            var bootstrapLogPath = Path.Combine(voxCpmInstallRoot, "install-bootstrap.log");
-
-            try
-            {
-                EnsureVoxCpmSetupDirectories(voxCpmInstallRoot, voxCpmModelCacheRoot);
-                File.AppendAllText(
-                    bootstrapLogPath,
-                    "VoxCPM setup started: " + DateTime.Now.ToString("s") + Environment.NewLine
-                        + "Model download mirror: " + (useHfMirror ? "enabled" : "disabled") + Environment.NewLine,
-                    Encoding.UTF8);
-                Directory.CreateDirectory(tempDir);
-                using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("voxcpm_service.zip"))
-                {
-                    if (stream == null)
-                    {
-                        throw new InvalidOperationException("VoxCPM setup resource missing.");
-                    }
-
-                    using (var output = File.Create(tempZip))
-                    {
-                        stream.CopyTo(output);
-                    }
-                }
-
-                ExtractZipToDirectory(tempZip, tempDir);
-                var scriptPath = Path.Combine(tempDir, "install_local.ps1");
-                if (!File.Exists(scriptPath))
-                {
-                    throw new FileNotFoundException("VoxCPM setup script missing.", scriptPath);
-                }
-
-                var startInfo = new ProcessStartInfo
-                {
-                    FileName = "powershell.exe",
-                    Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"" + scriptPath + "\""
-                        + " -InstallRoot " + QuoteProcessArgument(voxCpmInstallRoot)
-                        + " -ModelCacheRoot " + QuoteProcessArgument(voxCpmModelCacheRoot)
-                        + (useHfMirror ? " -UseHfMirror" : ""),
-                    WorkingDirectory = tempDir,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
-
-                using (var setupLog = new StreamWriter(bootstrapLogPath, true, Encoding.UTF8))
-                using (var process = new Process())
-                {
-                    setupLog.AutoFlush = true;
-                    setupLog.WriteLine("Command: powershell.exe " + startInfo.Arguments);
-                    process.StartInfo = startInfo;
-                    process.OutputDataReceived += delegate(object outputSender, DataReceivedEventArgs outputArgs)
-                    {
-                        if (outputArgs.Data != null)
-                        {
-                            setupLog.WriteLine(outputArgs.Data);
-                        }
-                    };
-                    process.ErrorDataReceived += delegate(object errorSender, DataReceivedEventArgs errorArgs)
-                    {
-                        if (errorArgs.Data != null)
-                        {
-                            setupLog.WriteLine(errorArgs.Data);
-                        }
-                    };
-                    if (!process.Start())
-                    {
-                        throw new InvalidOperationException("Could not start PowerShell for VoxCPM setup.");
-                    }
-                    process.BeginOutputReadLine();
-                    process.BeginErrorReadLine();
-                    process.WaitForExit();
-                    if (process.ExitCode != 0)
-                    {
-                        MessageBox.Show(
-                            this,
-                            "VoxCPM setup failed. The main app installation completed.\n\nSetup log: " + logPath + "\nBootstrap log: " + bootstrapLogPath,
-                            "Oh My Word",
-                            MessageBoxButtons.OK,
-                            MessageBoxIcon.Warning);
-                        return;
-                    }
-                }
-
-                MessageBox.Show(
-                    this,
-                    "VoxCPM local setup completed.",
-                    "Oh My Word",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    this,
-                    "VoxCPM setup failed. The main app installation completed.\n\nSetup log: " + logPath + "\nBootstrap log: " + bootstrapLogPath + "\n\n" + ex.Message,
-                    "Oh My Word",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
-            }
-            finally
-            {
-                try
-                {
-                    if (Directory.Exists(tempDir))
-                    {
-                        Directory.Delete(tempDir, true);
-                    }
-                }
-                catch
-                {
-                }
-            }
-        }
     }
 
     private static string NormalizeInstallRoot(string rawPath)
@@ -750,16 +411,6 @@ internal static class Program
             throw new InvalidOperationException("Cannot install to a drive root.");
         }
         return fullPath;
-    }
-
-    private static string NormalizeVoxCpmInstallRoot(string rawPath)
-    {
-        return NormalizeInstallRoot(rawPath);
-    }
-
-    private static string NormalizeVoxCpmModelCacheRoot(string rawPath)
-    {
-        return NormalizeInstallRoot(rawPath);
     }
 
     private static void EnsureInstalledAppNotRunning(string exePath)
@@ -791,41 +442,6 @@ internal static class Program
                         "Close Oh My Word before installing or updating. The installed app is still running: " + targetPath);
                 }
             }
-        }
-    }
-
-    private static void EnsureVoxCpmSetupDirectories(string voxCpmInstallRoot, string voxCpmModelCacheRoot)
-    {
-        ProbeWritableDirectory(voxCpmInstallRoot, "VoxCPM engine folder");
-        ProbeWritableDirectory(voxCpmModelCacheRoot, "VoxCPM model cache folder");
-        ProbeWritableDirectory(Path.Combine(voxCpmModelCacheRoot, "hub"), "VoxCPM model cache folder");
-    }
-
-    private static void ProbeWritableDirectory(string directoryPath, string description)
-    {
-        try
-        {
-            Directory.CreateDirectory(directoryPath);
-            var probePath = Path.Combine(directoryPath, ".oh-my-word-write-test-" + Guid.NewGuid().ToString("N") + ".tmp");
-            try
-            {
-                File.WriteAllText(probePath, "ok");
-            }
-            finally
-            {
-                if (File.Exists(probePath))
-                {
-                    File.Delete(probePath);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException(
-                "Cannot write to " + description + ": " + directoryPath
-                + Environment.NewLine
-                + "Choose a writable location and try again.",
-                ex);
         }
     }
 
@@ -1034,10 +650,6 @@ internal static class Program
         return value.Replace("'", "''");
     }
 
-    private static string QuoteProcessArgument(string value)
-    {
-        return "\"" + value.Replace("\"", "\\\"") + "\"";
-    }
 }
 "@
 Set-Content -LiteralPath $sourcePath -Value $installerSource -Encoding UTF8
@@ -1051,7 +663,6 @@ $cscArgs = @(
     "/target:winexe",
     "/out:$installerPath",
     "/resource:$payloadZipPath,payload.zip",
-    "/resource:$voxcpmServiceZipPath,voxcpm_service.zip",
     "/reference:System.dll",
     "/reference:System.Core.dll",
     "/reference:System.IO.Compression.dll",

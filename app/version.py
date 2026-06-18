@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 
-APP_VERSION = "0.1.11"
+APP_VERSION = "0.1.13"
 
 
 @dataclass(slots=True, frozen=True)
@@ -15,6 +15,24 @@ class ChangelogEntry:
 
 CHANGELOG: tuple[ChangelogEntry, ...] = (
 
+    ChangelogEntry(
+        version="0.1.13",
+        date="2026-06-18",
+        changes=(
+            "设置页新增“下载并导入模型包”，运行时已安装后可以单独补下或重下模型包。",
+            "设置页已接通可编辑的 ModelScope 路径字段，运行时/模型下载统一读取当前设置值。",
+            "安装器移除旧的 VoxCPM 下载/安装入口，只保留主程序安装，VoxCPM2 改为应用内下载或导入。",
+        ),
+    ),
+    ChangelogEntry(
+        version="0.1.12",
+        date="2026-06-18",
+        changes=(
+            "移除旧的「后台安装 / 更新」入口，用户统一使用 ModelScope 运行时包导入流程。",
+            "设置页 VoxCPM 操作按钮改为两行布局，避免窄窗口按钮被裁切。",
+            "修复下载并导入运行时包未使用设置中 ModelScope 路径的问题。",
+        ),
+    ),
     ChangelogEntry(
         version="0.1.11",
         date="2026-06-18",
@@ -29,7 +47,7 @@ CHANGELOG: tuple[ChangelogEntry, ...] = (
         changes=(
             "设置页新增“导入 VoxCPM 运行时包”，普通用户现在可以直接导入 GitHub Release 发布的预构建 VoxCPM2 runtime zip。",
             "VoxCPM 运行时状态区会显示 runtime ID、CUDA 标签、最低驱动要求和模型版本，便于确认当前机器与运行时矩阵是否匹配。",
-            "README 和稳定 spec 已改为以运行时包为首选路径，旧的后台安装 / 更新保留为兼容/兜底方案，并明确 Windows 10/11 x64、NVIDIA GPU、8 GB+ VRAM 和 15 GB+ 磁盘空间建议。",
+            "README 和稳定 spec 已改为以运行时包为首选路径，明确 Windows 10/11 x64、NVIDIA GPU、8 GB+ VRAM 和 15 GB+ 磁盘空间建议。",
         ),
     ),
     ChangelogEntry(

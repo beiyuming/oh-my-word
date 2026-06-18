@@ -53,11 +53,6 @@ from .words import (
     select_next_word,
 )
 
-VOXCPM_MODELSCOPE_NAMESPACE = "borealis"
-VOXCPM_MODELSCOPE_REPOSITORY = "oh-my-word-voxcpm2-runtime"
-VOXCPM_MODELSCOPE_RUNTIME_FILENAME = "voxcpm2-runtime-win-x64-cu130-r1.zip"
-VOXCPM_MODELSCOPE_MIN_DRIVER_VERSION = "580"
-
 
 @dataclass(slots=True)
 class AppPaths:
@@ -377,8 +372,10 @@ class AppController(QObject):
             self.settings_window.voxcpm_runtime_download_requested.connect(
                 self.download_and_import_voxcpm_runtime_bundle
             )
+            self.settings_window.voxcpm_model_download_requested.connect(
+                self.download_and_import_voxcpm_model_package
+            )
             self.settings_window.voxcpm_model_import_requested.connect(self.import_voxcpm_model_package)
-            self.settings_window.voxcpm_install_requested.connect(self.install_voxcpm_from_settings)
             self.settings_window.voxcpm_start_requested.connect(self.start_voxcpm_service_from_settings)
             self.settings_window.voxcpm_stop_requested.connect(self.stop_voxcpm_service)
             self.settings_window.voxcpm_health_check_requested.connect(self.check_voxcpm_service)
@@ -744,18 +741,6 @@ class AppController(QObject):
 
         self._refresh_voxcpm_status_in_settings()
 
-    def install_voxcpm_from_settings(self) -> None:
-        self._apply_open_settings_dialog_values()
-        if self.voxcpm_service is None:
-            return
-        started = self.voxcpm_service.install_async()
-        self._refresh_voxcpm_status_in_settings()
-        if self.tray is not None:
-            self.tray.show_message(
-                "oh my word",
-                "VoxCPM 已开始后台安装。" if started else self.voxcpm_service.status().message,
-            )
-
     def import_voxcpm_runtime_package(self) -> None:
         source, _ = QFileDialog.getOpenFileName(
             self.settings_window,
@@ -796,15 +781,24 @@ class AppController(QObject):
                 "VoxCPM 模型包导入成功。" if imported else self.voxcpm_service.status().message,
             )
 
+    def download_and_import_voxcpm_model_package(self) -> None:
+        self._apply_open_settings_dialog_values()
+        if self.voxcpm_service is None:
+            return
+        self.voxcpm_service.download_and_import_model_package(
+            namespace=self.settings.voxcpm_modelscope_namespace,
+            repo_name=self.settings.voxcpm_modelscope_repository,
+        )
+
     def download_and_import_voxcpm_runtime_bundle(self) -> None:
         self._apply_open_settings_dialog_values()
         if self.voxcpm_service is None:
             return
         self.voxcpm_service.download_and_import_runtime_bundle(
-            namespace=VOXCPM_MODELSCOPE_NAMESPACE,
-            repo_name=VOXCPM_MODELSCOPE_REPOSITORY,
-            runtime_filename=VOXCPM_MODELSCOPE_RUNTIME_FILENAME,
-            min_driver_version=VOXCPM_MODELSCOPE_MIN_DRIVER_VERSION,
+            namespace=self.settings.voxcpm_modelscope_namespace,
+            repo_name=self.settings.voxcpm_modelscope_repository,
+            runtime_filename=self.settings.voxcpm_modelscope_runtime_filename,
+            min_driver_version=self.settings.voxcpm_modelscope_min_driver_version,
         )
 
     def start_voxcpm_service_from_settings(self) -> None:
@@ -871,7 +865,7 @@ class AppController(QObject):
             return False
         if not self.voxcpm_service.is_installed():
             self._show_voxcpm_notice(
-                "VoxCPM 尚未就绪，请先在设置中导入运行时包，或使用后台安装 / 更新作为兼容方案。"
+                "VoxCPM 尚未就绪，请先在设置中导入运行时包。"
             )
             self._refresh_voxcpm_status_in_settings()
             return True

@@ -264,14 +264,15 @@ def test_voxcpm_service_streams_s16le_pcm_chunks() -> None:
     assert "s16le" in server_source
 
 
-def test_windows_installer_voxcpm_option_is_optional_and_non_fatal() -> None:
+def test_windows_installer_removes_legacy_voxcpm_setup_ui() -> None:
     installer_script = (ROOT / "build" / "build_installer.ps1").read_text(encoding="utf-8")
 
-    assert "Install local VoxCPM pronunciation engine" in installer_script
-    assert "install_local.ps1" in installer_script
-    assert "Checked = false" in installer_script
-    assert "VoxCPM setup failed" in installer_script
-    assert "app installation completed" in installer_script
+    assert "Install local VoxCPM pronunciation engine" not in installer_script
+    assert "VoxCPM engine folder" not in installer_script
+    assert "VoxCPM model cache folder" not in installer_script
+    assert "Use model download mirror" not in installer_script
+    assert "RunVoxCpmSetup" not in installer_script
+    assert "voxcpm_service.zip" not in installer_script
 
 
 def test_pyinstaller_payload_includes_voxcpm_service_scripts_for_in_app_install() -> None:
@@ -298,90 +299,10 @@ def test_voxcpm_payload_boundaries_exclude_heavy_runtime_artifacts() -> None:
         assert "audiovae.pth" not in source
         assert "*.whl" not in source
         assert "hub" not in source[source.find("Compress-Archive") : source.find("Compress-Archive") + 500]
-    assert "$voxcpmServicePayloadFiles" in installer_script
-    assert "Compress-Archive -Path $voxcpmServicePayloadPaths" in installer_script
-    assert "Compress-Archive -Path (Join-Path $voxcpmServiceDir \"*\")" not in installer_script
+    assert "$voxcpmServicePayloadFiles" not in installer_script
+    assert "voxcpm_service.zip" not in installer_script
     assert "pip install" in install_script
     assert "VoxCPM.from_pretrained" in install_script
-
-
-def test_windows_installer_passes_selected_voxcpm_model_cache() -> None:
-    installer_script = (ROOT / "build" / "build_installer.ps1").read_text(encoding="utf-8")
-
-    assert "voxcpmModelCachePathBox" in installer_script
-    assert "VoxCPM model cache folder" in installer_script
-    assert "BrowseVoxCpmModelCachePath" in installer_script
-    assert "NormalizeVoxCpmModelCacheRoot" in installer_script
-    assert "-ModelCacheRoot" in installer_script
-    assert "QuoteProcessArgument(voxCpmModelCacheRoot)" in installer_script
-    assert "EscapePowerShellArgument(voxCpmModelCacheRoot)" not in installer_script
-    assert " -InstallRoot '\" +" not in installer_script
-
-
-def test_windows_installer_defaults_voxcpm_under_selected_app_tts_folder() -> None:
-    installer_script = (ROOT / "build" / "build_installer.ps1").read_text(encoding="utf-8")
-
-    assert 'Path.Combine(defaultInstallRoot, "tts", "voxcpm")' in installer_script
-    assert 'Path.Combine(defaultVoxCpmInstallRoot, "models")' in installer_script
-    assert "UpdateVoxCpmDefaultPathsFromInstallRoot" in installer_script
-    assert "installPathBox.TextChanged" in installer_script
-    assert "voxCpmInstallPathEdited" in installer_script
-    assert "voxCpmModelCachePathEdited" in installer_script
-
-
-def test_windows_installer_initializes_voxcpm_model_textbox_before_handler() -> None:
-    installer_script = (ROOT / "build" / "build_installer.ps1").read_text(encoding="utf-8")
-
-    textbox_index = installer_script.index("voxcpmModelCachePathBox = new TextBox")
-    handler_index = installer_script.index("voxcpmModelCachePathBox.TextChanged +=")
-
-    assert textbox_index < handler_index
-
-
-def test_windows_installer_defaults_voxcpm_hf_mirror_on_for_model_downloads() -> None:
-    installer_script = (ROOT / "build" / "build_installer.ps1").read_text(encoding="utf-8")
-
-    assert "useHfMirrorBox" in installer_script
-    assert "Use model download mirror" in installer_script
-    assert "useHfMirrorBox.Checked" in installer_script
-    assert "bool useHfMirror" in installer_script
-    assert '+ (useHfMirror ? " -UseHfMirror" : "")' in installer_script
-    assert "Model download mirror: " in installer_script
-
-
-def test_windows_installer_preflights_voxcpm_setup_directories() -> None:
-    installer_script = (ROOT / "build" / "build_installer.ps1").read_text(encoding="utf-8")
-
-    assert "EnsureVoxCpmSetupDirectories(voxCpmInstallRoot, voxCpmModelCacheRoot)" in installer_script
-    assert "ProbeWritableDirectory(voxCpmInstallRoot" in installer_script
-    assert "ProbeWritableDirectory(voxCpmModelCacheRoot" in installer_script
-    assert "ProbeWritableDirectory(Path.Combine(voxCpmModelCacheRoot, \"hub\")" in installer_script
-    assert "File.WriteAllText(probePath, \"ok\")" in installer_script
-    assert "Cannot write to " in installer_script
-    assert "VoxCPM engine folder" in installer_script
-    assert "VoxCPM model cache folder" in installer_script
-    assert "Choose a writable location" in installer_script
-    setup_method = installer_script[
-        installer_script.index("private void RunVoxCpmSetup") : installer_script.index(
-            "MessageBox.Show(\n                    this,\n                    \"VoxCPM local setup completed.\""
-        )
-    ]
-    assert setup_method.index("EnsureVoxCpmSetupDirectories") < setup_method.index("ProcessStartInfo")
-
-
-def test_windows_installer_captures_voxcpm_setup_output() -> None:
-    installer_script = (ROOT / "build" / "build_installer.ps1").read_text(encoding="utf-8")
-
-    assert "install-bootstrap.log" in installer_script
-    assert "RedirectStandardOutput = true" in installer_script
-    assert "RedirectStandardError = true" in installer_script
-    assert "UseShellExecute = false" in installer_script
-    assert "BeginOutputReadLine()" in installer_script
-    assert "BeginErrorReadLine()" in installer_script
-    assert "OutputDataReceived" in installer_script
-    assert "ErrorDataReceived" in installer_script
-    assert "Bootstrap log: " in installer_script
-    assert "-NoProfile -NonInteractive -ExecutionPolicy Bypass" in installer_script
 
 
 def test_windows_installer_checks_running_app_before_replacing_payload() -> None:
@@ -440,26 +361,19 @@ def test_stable_docs_describe_voxcpm_provider_contract() -> None:
     assert "NVIDIA GPU" in readme
     assert "8 GB+ VRAM" in readme
     assert "15 GB+" in readme
-    assert "后台安装 / 更新" in readme
-    assert "兼容" in readme
+    assert "下载并导入模型包" in readme
+    assert "安装器不再提供 VoxCPM 的下载或安装入口" in readme
     assert "使用时自动启动" in readme
-    assert "默认关闭" in packaging_spec
-    assert "ModelCacheRoot" in packaging_spec
     assert "tts\\voxcpm\\models" in readme
-    assert "Use model download mirror" in readme
-    assert "默认启用" in packaging_spec
-    assert "运行中的旧应用" in packaging_spec
-    assert "可写" in packaging_spec
     assert "service-only" in readme
     assert "voxcpm2-runtime-win-x64-cu130-r1.zip" in packaging_spec
     assert "runtime package" in packaging_spec or "运行时包" in packaging_spec
     assert "GitHub Release" in packaging_spec
-    assert "兼容/兜底" in packaging_spec
+    assert "下载并导入模型包" in packaging_spec
     assert "导入运行时包" in tts_spec
     assert "install_local.ps1" in packaging_spec
     assert "server.py" in packaging_spec
     assert "engine.py" in packaging_spec
     assert ".venv" in packaging_spec
     assert "不得整目录打包" in packaging_spec
-    assert "用户不勾选" in packaging_spec
-    assert "不得下载模型" in packaging_spec
+    assert "应用内应支持四条路径" in packaging_spec

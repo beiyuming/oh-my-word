@@ -4,6 +4,7 @@ import json
 import unittest
 import zipfile
 import hashlib
+import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -196,40 +197,6 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
         self.assertTrue(status.installed)
         self.assertEqual(status.runtime_state, "legacy")
 
-    def test_background_install_creates_directories_and_builds_command(self) -> None:
-        captured: dict[str, Any] = {}
-
-        def fake_process_factory(*args: Any, **kwargs: Any) -> _FakeProcess:
-            captured["args"] = args[0]
-            captured["cwd"] = kwargs.get("cwd")
-            return _FakeProcess()
-
-        with TemporaryDirectory() as tmp_dir:
-            root = Path(tmp_dir)
-            script_root = root / "scripts"
-            script_root.mkdir()
-            (script_root / "install_local.ps1").write_text("", encoding="utf-8")
-            install_root = root / "install"
-            model_root = root / "models"
-            manager = VoxCpmServiceManager(
-                install_root=install_root,
-                model_cache_root=model_root,
-                script_root=script_root,
-                use_model_mirror=True,
-                process_factory=fake_process_factory,
-            )
-
-            self.assertTrue(manager.install_async())
-
-            self.assertTrue(install_root.exists())
-            self.assertTrue(model_root.exists())
-            self.assertIn("-InstallRoot", captured["args"])
-            self.assertIn(str(install_root), captured["args"])
-            self.assertIn("-ModelCacheRoot", captured["args"])
-            self.assertIn(str(model_root), captured["args"])
-            self.assertIn("-UseHfMirror", captured["args"])
-            self.assertEqual(captured["cwd"], script_root)
-            self.assertTrue(manager.status().installing)
 
     def test_start_refuses_when_service_is_not_installed(self) -> None:
         with TemporaryDirectory() as tmp_dir:
@@ -525,6 +492,65 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
             self.assertTrue((root / "voxcpm" / ".venv" / "Scripts" / "python.exe").exists())
             self.assertTrue((root / "voxcpm" / "models" / "VoxCPM2-local" / "model.safetensors").exists())
             self.assertIn("已下载并导入", manager.status().message)
+
+    def test_download_and_import_model_package_uses_imported_runtime_manifest(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            runtime_zip = root / "runtime.zip"
+            model_zip = root / "model.zip"
+            _write_runtime_package(runtime_zip)
+            _write_model_package(model_zip)
+            runtime_bytes = runtime_zip.read_bytes()
+            model_bytes = model_zip.read_bytes()
+            runtime_sha = f"{_sha256_bytes(runtime_bytes)}  voxcpm2-runtime-win-x64-cu130-r1.zip".encode("utf-8")
+            model_sha = f"{_sha256_bytes(model_bytes)}  voxcpm2-model-cu130-r1.zip".encode("utf-8")
+
+            def fake_urlopen(request: Any, **_kwargs: Any) -> _FakeResponse:
+                url = request.full_url if hasattr(request, "full_url") else str(request)
+                if "voxcpm2-runtime-win-x64-cu130-r1.zip.sha256" in url:
+                    return _FakeResponse(runtime_sha)
+                if "voxcpm2-runtime-win-x64-cu130-r1.zip" in url:
+                    return _FakeResponse(runtime_bytes)
+                if "voxcpm2-model-cu130-r1.zip.sha256" in url:
+                    return _FakeResponse(model_sha)
+                if "voxcpm2-model-cu130-r1.zip" in url:
+                    return _FakeResponse(model_bytes)
+                raise AssertionError(url)
+
+            manager = VoxCpmServiceManager(
+                install_root=root / "voxcpm",
+                model_cache_root=root / "voxcpm" / "models",
+                script_root=root / "scripts",
+                urlopen_func=fake_urlopen,
+                environment_probe=lambda: {
+                    "target_os": "windows",
+                    "target_arch": "x64",
+                    "has_nvidia_gpu": True,
+                    "driver_version": "580.88",
+                    "free_bytes": 10_000_000,
+                },
+                runtime_healthcheck_runner=lambda _runtime_root: (True, "ok"),
+            )
+
+            self.assertTrue(
+                manager._download_and_import_runtime_bundle_blocking(
+                    namespace="demo",
+                    repo_name="repo",
+                    runtime_filename="voxcpm2-runtime-win-x64-cu130-r1.zip",
+                    min_driver_version="580",
+                )
+            )
+            shutil.rmtree(root / "voxcpm" / "models")
+
+            self.assertTrue(
+                manager._download_and_import_model_package_blocking(
+                    namespace="demo",
+                    repo_name="repo",
+                )
+            )
+
+            self.assertTrue((root / "voxcpm" / "models" / "VoxCPM2-local" / "model.safetensors").exists())
+            self.assertIn("模型包", manager.status().message)
 
     def test_import_runtime_package_restores_backup_when_activation_fails(self) -> None:
         with TemporaryDirectory() as tmp_dir:

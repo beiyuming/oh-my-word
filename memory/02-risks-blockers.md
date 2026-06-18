@@ -52,7 +52,7 @@
 
 - 风险：2026-06-13 检查到本机 8808 上运行的是 `python.exe -m uvicorn service.server:app`，`/health` 和 `/synthesize` 可用，但 `/synthesize_stream` 返回 404。
 - 影响：即使主程序已打包支持流式，客户端也会回退完整 WAV，用户仍会感到每次朗读卡几秒；短词吞音问题也不会因主程序重装自动消失。v0.1.2 已加入 VoxCPM badcase 参数和首尾静音保护，但这些改动必须进入已安装的 service 才会生效。
-- 处理：v0.1.3 已让设置页停止服务可以识别并停止同一 local endpoint 上命令行为 `uvicorn service.server:app` 的旧 VoxCPM 进程，同时避免误杀无关端口进程。之后仍需要通过设置页“后台安装 / 更新”或安装器 VoxCPM 选项刷新 companion service。刷新后必须重新验证 `/synthesize_stream` 返回 200，再做人工听音。
+- 处理：v0.1.3 已让设置页停止服务可以识别并停止同一 local endpoint 上命令行为 `uvicorn service.server:app` 的旧 VoxCPM 进程，同时避免误杀无关端口进程。之后仍需要通过设置页重新下载/导入运行时包并重启服务，确保 companion service 已刷新。刷新后必须重新验证 `/synthesize_stream` 返回 200，再做人工听音。
 
 ### 9. 安装器脚本在 PyInstaller 结束后可能遇到瞬时文件锁
 
@@ -68,7 +68,7 @@
 
 ### 11. ModelScope 直连下载链路仍未做真实仓库端到端验证
 
-- 风险：当前代码已经接入 `下载并导入运行时包`，并在 controller 中写死了 `namespace/repo/runtime filename/min driver` 常量；但这些值目前仍基于本地实现假设，尚未对真实线上 ModelScope 仓库做一次成功的下载、checksum、导入、启动和合成验证。
+- 风险：当前代码已经接入 `下载并导入运行时包` 与 `下载并导入模型包`，默认值已切到 `borealis/oh-my-word-voxcpm2-runtime` 且支持在设置页编辑；但这些值尚未对真实线上 ModelScope 仓库做一次成功的下载、checksum、导入、启动和合成验证。
 - 影响：即使当前单元测试全部通过，真实用户环境里仍可能因为仓库名、文件名、权限、下载地址或 checksum 文件布局与代码假设不一致而失败。
 - 处理：上线前需要先把真实运行时包、模型包和 `.sha256` 文件上传到目标 ModelScope 仓库，再从设置页执行一次完整的 `下载并导入运行时包` 端到端验证，并据实回填常量和值。
 

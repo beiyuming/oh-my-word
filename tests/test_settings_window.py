@@ -31,6 +31,10 @@ class SettingsDialogTtsTests(unittest.TestCase):
                 voxcpm_use_model_mirror=False,
                 voxcpm_auto_start=True,
                 voxcpm_voice_prompt="A calm English teacher voice.",
+                voxcpm_modelscope_namespace="borealis",
+                voxcpm_modelscope_repository="oh-my-word-voxcpm2-runtime",
+                voxcpm_modelscope_runtime_filename="voxcpm2-runtime-win-x64-cu130-r2.zip",
+                voxcpm_modelscope_min_driver_version="581",
                 voxcpm_stream_prebuffer_seconds=0.65,
             )
         )
@@ -49,6 +53,10 @@ class SettingsDialogTtsTests(unittest.TestCase):
         self.assertFalse(settings.voxcpm_use_model_mirror)
         self.assertTrue(settings.voxcpm_auto_start)
         self.assertEqual(settings.voxcpm_voice_prompt, "A calm English teacher voice.")
+        self.assertEqual(settings.voxcpm_modelscope_namespace, "borealis")
+        self.assertEqual(settings.voxcpm_modelscope_repository, "oh-my-word-voxcpm2-runtime")
+        self.assertEqual(settings.voxcpm_modelscope_runtime_filename, "voxcpm2-runtime-win-x64-cu130-r2.zip")
+        self.assertEqual(settings.voxcpm_modelscope_min_driver_version, "581")
         self.assertEqual(settings.voxcpm_stream_prebuffer_seconds, 0.65)
 
     def test_settings_dialog_has_categorized_tabs(self) -> None:
@@ -91,9 +99,9 @@ class SettingsDialogTtsTests(unittest.TestCase):
         self.addCleanup(dialog.close)
         emitted: list[str] = []
         dialog.voxcpm_runtime_import_requested.connect(lambda: emitted.append("runtime"))
-        dialog.voxcpm_runtime_download_requested.connect(lambda: emitted.append("download"))
+        dialog.voxcpm_runtime_download_requested.connect(lambda: emitted.append("runtime-download"))
+        dialog.voxcpm_model_download_requested.connect(lambda: emitted.append("model-download"))
         dialog.voxcpm_model_import_requested.connect(lambda: emitted.append("model"))
-        dialog.voxcpm_install_requested.connect(lambda: emitted.append("install"))
         dialog.voxcpm_start_requested.connect(lambda: emitted.append("start"))
         dialog.voxcpm_stop_requested.connect(lambda: emitted.append("stop"))
         dialog.voxcpm_health_check_requested.connect(lambda: emitted.append("check"))
@@ -101,14 +109,17 @@ class SettingsDialogTtsTests(unittest.TestCase):
 
         dialog._voxcpm_runtime_button.click()
         dialog._voxcpm_runtime_download_button.click()
+        dialog._voxcpm_model_download_button.click()
         dialog._voxcpm_model_button.click()
-        dialog._voxcpm_install_button.click()
         dialog._voxcpm_start_button.click()
         dialog._voxcpm_stop_button.click()
         dialog._voxcpm_check_button.click()
         dialog._voxcpm_open_log_button.click()
 
-        self.assertEqual(emitted, ["runtime", "download", "model", "install", "start", "stop", "check", "log"])
+        self.assertEqual(
+            emitted,
+            ["runtime", "runtime-download", "model-download", "model", "start", "stop", "check", "log"],
+        )
 
     def test_set_voxcpm_status_shows_runtime_metadata(self) -> None:
         dialog = SettingsDialog(AppSettings())

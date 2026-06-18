@@ -436,7 +436,7 @@ class ControllerPopupActionTests(unittest.TestCase):
         controller.tts.speak.assert_not_called()
         controller.tray.show_message.assert_called_once_with(
             "oh my word",
-            "VoxCPM 尚未就绪，请先在设置中导入运行时包，或使用后台安装 / 更新作为兼容方案。",
+            "VoxCPM 尚未就绪，请先在设置中导入运行时包。",
         )
 
     def test_pronounce_text_uses_voxcpm_when_service_is_running(self) -> None:
@@ -598,7 +598,30 @@ class ControllerPopupActionTests(unittest.TestCase):
 
         controller.download_and_import_voxcpm_runtime_bundle()
 
-        controller.voxcpm_service.download_and_import_runtime_bundle.assert_called_once()
+        controller.voxcpm_service.download_and_import_runtime_bundle.assert_called_once_with(
+            namespace=current_settings.voxcpm_modelscope_namespace,
+            repo_name=current_settings.voxcpm_modelscope_repository,
+            runtime_filename=current_settings.voxcpm_modelscope_runtime_filename,
+            min_driver_version=current_settings.voxcpm_modelscope_min_driver_version,
+        )
+
+    def test_download_voxcpm_model_package_uses_manager(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings()
+        controller.settings_store = Mock()
+        controller.settings_window = Mock()
+        current_settings = AppSettings()
+        controller.settings_window.get_settings.return_value = current_settings
+        controller.settings_store.save.return_value = current_settings
+        controller.tray = Mock()
+        controller.voxcpm_service = Mock()
+
+        controller.download_and_import_voxcpm_model_package()
+
+        controller.voxcpm_service.download_and_import_model_package.assert_called_once_with(
+            namespace=current_settings.voxcpm_modelscope_namespace,
+            repo_name=current_settings.voxcpm_modelscope_repository,
+        )
 
     def test_create_tts_service_passes_voxcpm_stream_prebuffer_seconds(self) -> None:
         controller = AppController(self.app)

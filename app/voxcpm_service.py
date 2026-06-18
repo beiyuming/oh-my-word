@@ -147,43 +147,6 @@ class VoxCpmServiceManager(QObject):
             model_version=runtime_manifest.model_version if runtime_manifest is not None else "",
         )
 
-    def install_async(self) -> bool:
-        if self.is_installing():
-            self._message = "VoxCPM 正在安装中。"
-            self._emit_status()
-            return False
-
-        install_script = self._script_root / "install_local.ps1"
-        if not install_script.exists():
-            self._message = f"找不到 VoxCPM 安装脚本：{install_script}"
-            self._emit_status()
-            return False
-
-        self._install_root.mkdir(parents=True, exist_ok=True)
-        self._model_cache_root.mkdir(parents=True, exist_ok=True)
-        self._close_install_log()
-
-        args = [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(install_script),
-            "-InstallRoot",
-            str(self._install_root),
-            "-ModelCacheRoot",
-            str(self._model_cache_root),
-        ]
-        if self._use_model_mirror:
-            args.append("-UseHfMirror")
-
-        with self.log_path.open("a", encoding="utf-8") as log_handle:
-            self._install_process = self._spawn(args, cwd=self._script_root, stdout=log_handle)
-        self._message = "VoxCPM 已开始后台安装。"
-        self._emit_status()
-        return True
-
     def import_runtime_package(self, package_path: Path) -> bool:
         if self.is_installing():
             self._message = "VoxCPM 正在安装中。"
@@ -303,6 +266,44 @@ class VoxCpmServiceManager(QObject):
         self._emit_status()
         return True
 
+    def download_and_import_model_package(
+        self,
+        *,
+        namespace: str,
+        repo_name: str,
+    ) -> None:
+        if self._download_active:
+            return
+        if self.is_installing():
+            self._message = "VoxCPM 正在安装中。"
+            self._emit_status()
+            return
+        if self.is_running():
+            self._message = "请先停止当前 VoxCPM 服务，再下载模型包。"
+            self._emit_status()
+            return
+
+        runtime_state, runtime_manifest = self._detect_runtime_metadata()
+        if runtime_state != "imported" or runtime_manifest is None:
+            self._message = "请先导入 VoxCPM 运行时包，再下载模型包。"
+            self._emit_status()
+            return
+        if not runtime_manifest.model_package_filename:
+            self._message = "当前运行时未声明模型包文件名。"
+            self._emit_status()
+            return
+
+        import threading
+
+        self._download_active = True
+        self._message = "正在准备下载 VoxCPM 模型包..."
+        self._emit_status()
+        threading.Thread(
+            target=self._download_and_import_model_package_sync,
+            args=(namespace, repo_name, runtime_manifest.model_package_filename),
+            daemon=True,
+        ).start()
+
     def download_and_import_runtime_bundle(
         self,
         *,
@@ -400,6 +401,31 @@ class VoxCpmServiceManager(QObject):
             self._download_active = False
             self._emit_status()
 
+    def _download_and_import_model_package_sync(
+        self,
+        namespace: str,
+        repo_name: str,
+        model_filename: str,
+    ) -> None:
+        download_root = self._install_root.parent / f"{self._install_root.name}.downloads"
+        try:
+            self.download_progress.emit(f"正在下载 {model_filename} ...")
+            model_zip_path = self._download_modelscope_asset(
+                namespace=namespace,
+                repo_name=repo_name,
+                filename=model_filename,
+                download_root=download_root,
+            )
+            self.download_progress.emit("正在导入模型包...")
+            if not self.import_model_package(model_zip_path):
+                return
+            self._message = f"已下载并导入 VoxCPM 模型包：{model_filename}"
+        except Exception as exc:
+            self._message = f"下载 VoxCPM 模型包失败：{exc}"
+        finally:
+            self._download_active = False
+            self._emit_status()
+
     def _download_and_import_runtime_bundle_blocking(
         self,
         *,
@@ -447,6 +473,39 @@ class VoxCpmServiceManager(QObject):
         self._download_active = True
         self._download_and_import_runtime_bundle_sync(
             namespace, repo_name, runtime_filename, min_driver_version
+        )
+        return self._download_active is False and "下载" in self._message
+
+    def _download_and_import_model_package_blocking(
+        self,
+        *,
+        namespace: str,
+        repo_name: str,
+    ) -> bool:
+        if self.is_installing():
+            self._message = "VoxCPM 正在安装中。"
+            self._emit_status()
+            return False
+        if self.is_running():
+            self._message = "请先停止当前 VoxCPM 服务，再下载模型包。"
+            self._emit_status()
+            return False
+
+        runtime_state, runtime_manifest = self._detect_runtime_metadata()
+        if runtime_state != "imported" or runtime_manifest is None:
+            self._message = "请先导入 VoxCPM 运行时包，再下载模型包。"
+            self._emit_status()
+            return False
+        if not runtime_manifest.model_package_filename:
+            self._message = "当前运行时未声明模型包文件名。"
+            self._emit_status()
+            return False
+
+        self._download_active = True
+        self._download_and_import_model_package_sync(
+            namespace,
+            repo_name,
+            runtime_manifest.model_package_filename,
         )
         return self._download_active is False and "下载" in self._message
 
