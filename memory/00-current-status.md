@@ -15,6 +15,10 @@
 
 ## 最近验证
 
+- 2026-06-18 v0.1.15 导入不卡死修复：`app/controller.py` 的 `导入 VoxCPM 运行时包 / 导入模型包` 已改为调用 `VoxCpmServiceManager` 的后台线程入口，不再把 ZIP 校验、清理残留、解压和运行时自检堵在 UI 线程。
+- 2026-06-18 v0.1.15 状态反馈修复：`app/voxcpm_service.py` 在手动导入过程中会发送阶段性进度文案（校验、清理、解压、自检、激活），`app/settings_window.py` 会在后台任务期间显示“处理中”并禁用重复点击按钮，完成后托盘补发结果提示。
+- 2026-06-18 v0.1.15 验证：`py -3.11 -m pytest tests/test_voxcpm_service_manager.py tests/test_controller.py tests/test_settings_window.py -q` 通过，结果为 68 个测试通过；`py -3.11 -m pytest tests -q` 通过，结果为 191 个测试通过；`.\build\build_installer.ps1` 生成 `dist\oh-my-word-setup-v0.1.15.exe`；`dist\oh-my-word-py\oh-my-word-py.exe` 隐藏短启动 8 秒后进程仍存活，并确认生成 exe 同级 `storage\app.log` 与 `storage\oh_my_word.sqlite3`。
+
 - 2026-06-18 v0.1.14 导入修复：`app/voxcpm_service.py` 已修复预构建运行时包导入时直接执行 `/health` 的误报；当前实现改为使用运行时 `.venv\Scripts\python.exe` 在 staging 目录自检导入 `service.server`，不再要求导入阶段先启动 HTTP 服务。
 - 2026-06-18 v0.1.14 服务脚本修复：导入预构建运行时包后，会重写 `start_service.ps1` 和 `healthcheck.ps1`，去掉构建机硬编码路径，并改为使用当前设置中的模型目录和 endpoint。
 - 2026-06-18 v0.1.14 验证：`py -3.11 -m pytest tests -q` 通过，结果为 188 个测试通过；`.\build\build_installer.ps1` 成功生成 `dist\oh-my-word-setup-v0.1.14.exe`；`dist\oh-my-word-py\oh-my-word-py.exe` Windows 短启动 8 秒后进程仍存活，随后已主动关闭。

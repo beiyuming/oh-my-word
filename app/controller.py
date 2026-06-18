@@ -277,6 +277,7 @@ class AppController(QObject):
         self._last_tts_notice_key: str | None = None
         self._last_tts_notice_at = 0.0
         self._tts_request_serial = 0
+        self._pending_voxcpm_background_notice = False
         self._pending_auto_pronounce_word: str | None = None
         self._auto_pronounce_timer = QTimer(self)
         self._auto_pronounce_timer.setSingleShot(True)
@@ -753,12 +754,14 @@ class AppController(QObject):
         self._apply_open_settings_dialog_values()
         if self.voxcpm_service is None:
             return
-        imported = self.voxcpm_service.import_runtime_package(Path(source))
-        self._refresh_voxcpm_status_in_settings()
+        started = self.voxcpm_service.import_runtime_package_async(Path(source))
+        if started:
+            self._pending_voxcpm_background_notice = True
+            return
         if self.tray is not None:
             self.tray.show_message(
                 "oh my word",
-                "VoxCPM 运行时包导入成功。" if imported else self.voxcpm_service.status().message,
+                self.voxcpm_service.status().message,
             )
 
     def import_voxcpm_model_package(self) -> None:
@@ -773,33 +776,43 @@ class AppController(QObject):
         self._apply_open_settings_dialog_values()
         if self.voxcpm_service is None:
             return
-        imported = self.voxcpm_service.import_model_package(Path(source))
-        self._refresh_voxcpm_status_in_settings()
+        started = self.voxcpm_service.import_model_package_async(Path(source))
+        if started:
+            self._pending_voxcpm_background_notice = True
+            return
         if self.tray is not None:
             self.tray.show_message(
                 "oh my word",
-                "VoxCPM 模型包导入成功。" if imported else self.voxcpm_service.status().message,
+                self.voxcpm_service.status().message,
             )
 
     def download_and_import_voxcpm_model_package(self) -> None:
         self._apply_open_settings_dialog_values()
         if self.voxcpm_service is None:
             return
-        self.voxcpm_service.download_and_import_model_package(
+        started = self.voxcpm_service.download_and_import_model_package(
             namespace=self.settings.voxcpm_modelscope_namespace,
             repo_name=self.settings.voxcpm_modelscope_repository,
         )
+        if started:
+            self._pending_voxcpm_background_notice = True
+        elif self.tray is not None:
+            self.tray.show_message("oh my word", self.voxcpm_service.status().message)
 
     def download_and_import_voxcpm_runtime_bundle(self) -> None:
         self._apply_open_settings_dialog_values()
         if self.voxcpm_service is None:
             return
-        self.voxcpm_service.download_and_import_runtime_bundle(
+        started = self.voxcpm_service.download_and_import_runtime_bundle(
             namespace=self.settings.voxcpm_modelscope_namespace,
             repo_name=self.settings.voxcpm_modelscope_repository,
             runtime_filename=self.settings.voxcpm_modelscope_runtime_filename,
             min_driver_version=self.settings.voxcpm_modelscope_min_driver_version,
         )
+        if started:
+            self._pending_voxcpm_background_notice = True
+        elif self.tray is not None:
+            self.tray.show_message("oh my word", self.voxcpm_service.status().message)
 
     def start_voxcpm_service_from_settings(self) -> None:
         self._apply_open_settings_dialog_values()
@@ -888,6 +901,10 @@ class AppController(QObject):
     def _on_voxcpm_status_changed(self, status: VoxCpmServiceStatus) -> None:
         if self.settings_window is not None:
             self.settings_window.set_voxcpm_status(status)
+        if self._pending_voxcpm_background_notice and not getattr(status, "busy", False):
+            self._pending_voxcpm_background_notice = False
+            if self.tray is not None and status.message:
+                self.tray.show_message("oh my word", status.message)
 
     def _refresh_voxcpm_status_in_settings(self) -> None:
         if self.settings_window is not None and self.voxcpm_service is not None:

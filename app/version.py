@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 
-APP_VERSION = "0.1.14"
+APP_VERSION = "0.1.15"
 
 
 @dataclass(slots=True, frozen=True)
@@ -14,6 +14,15 @@ class ChangelogEntry:
 
 
 CHANGELOG: tuple[ChangelogEntry, ...] = (
+    ChangelogEntry(
+        version="0.1.15",
+        date="2026-06-18",
+        changes=(
+            "设置页手动导入 VoxCPM 运行时包和模型包已改为后台线程执行，不再把 ZIP 校验、清理、解压和自检堵在 UI 线程。",
+            "导入期间状态区会显示校验、清理残留、解压、自检和激活阶段提示，并临时禁用重复点击按钮。",
+            "后台导入或下载结束后，托盘会补发最终成功/失败结果，便于确认任务是否完成。",
+        ),
+    ),
 
     ChangelogEntry(
         version="0.1.14",

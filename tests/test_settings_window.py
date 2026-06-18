@@ -132,6 +132,7 @@ class SettingsDialogTtsTests(unittest.TestCase):
                 "installed": True,
                 "running": False,
                 "installing": False,
+                "busy": False,
                 "message": "已导入运行时包。",
                 "log_path": "D:\\OhMyWord\\tts\\voxcpm\\install.log",
                 "runtime_state": "imported",
@@ -148,3 +149,32 @@ class SettingsDialogTtsTests(unittest.TestCase):
         self.assertIn("voxcpm2-runtime-win-x64-cu124-r1", dialog._voxcpm_runtime_meta.text())
         self.assertIn("cu124", dialog._voxcpm_runtime_meta.text())
         self.assertIn("551.00", dialog._voxcpm_runtime_meta.text())
+
+    def test_set_voxcpm_status_disables_buttons_while_busy(self) -> None:
+        dialog = SettingsDialog(AppSettings())
+        self.addCleanup(dialog.close)
+
+        status = type(
+            "Status",
+            (),
+            {
+                "installed": False,
+                "running": False,
+                "installing": False,
+                "busy": True,
+                "message": "正在导入 VoxCPM 运行时包...",
+                "log_path": "D:\\OhMyWord\\tts\\voxcpm\\install.log",
+                "runtime_state": "missing",
+                "runtime_id": "",
+                "cuda_tag": "",
+                "min_driver_version": "",
+                "model_version": "",
+            },
+        )()
+
+        dialog.set_voxcpm_status(status)
+
+        self.assertEqual(dialog._voxcpm_install_status.text(), "处理中")
+        self.assertFalse(dialog._voxcpm_runtime_button.isEnabled())
+        self.assertFalse(dialog._voxcpm_runtime_download_button.isEnabled())
+        self.assertFalse(dialog._voxcpm_model_button.isEnabled())

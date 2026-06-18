@@ -6,6 +6,7 @@ import os
 import platform
 import shutil
 import subprocess
+import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,6 +55,7 @@ class VoxCpmServiceStatus:
     installing: bool
     message: str
     log_path: Path
+    busy: bool = False
     runtime_state: str = "missing"
     runtime_id: str = ""
     cuda_tag: str = ""
@@ -132,6 +134,9 @@ class VoxCpmServiceManager(QObject):
             return True
         return self._health_running
 
+    def is_busy(self) -> bool:
+        return self.is_installing() or self._download_active
+
     def status(self) -> VoxCpmServiceStatus:
         if self._install_process is not None and self._install_process.poll() is not None:
             self._close_install_log()
@@ -142,12 +147,44 @@ class VoxCpmServiceManager(QObject):
             installing=self.is_installing(),
             message=self._message,
             log_path=self.log_path,
+            busy=self.is_busy(),
             runtime_state=runtime_state,
             runtime_id=runtime_manifest.runtime_id if runtime_manifest is not None else "",
             cuda_tag=runtime_manifest.cuda_tag if runtime_manifest is not None else "",
             min_driver_version=runtime_manifest.min_driver_version if runtime_manifest is not None else "",
             model_version=runtime_manifest.model_version if runtime_manifest is not None else "",
         )
+
+    def import_runtime_package_async(self, package_path: Path) -> bool:
+        if self._download_active:
+            self._message = "VoxCPM 正在处理上一个任务。"
+            self._emit_status()
+            return False
+        if self.is_installing():
+            self._message = "VoxCPM 正在安装中。"
+            self._emit_status()
+            return False
+        if self.is_running():
+            self._message = "请先停止当前 VoxCPM 服务，再导入运行时包。"
+            self._emit_status()
+            return False
+
+        self._download_active = True
+        self._message = f"正在导入 VoxCPM 运行时包：{Path(package_path).name} ..."
+        self._emit_status()
+        threading.Thread(
+            target=self._import_runtime_package_sync,
+            args=(Path(package_path),),
+            daemon=True,
+        ).start()
+        return True
+
+    def _import_runtime_package_sync(self, package_path: Path) -> None:
+        try:
+            self.import_runtime_package(package_path)
+        finally:
+            self._download_active = False
+            self._emit_status()
 
     def import_runtime_package(self, package_path: Path) -> bool:
         if self.is_installing():
@@ -160,6 +197,7 @@ class VoxCpmServiceManager(QObject):
             return False
 
         try:
+            self.download_progress.emit(f"正在校验 {package_path.name} ...")
             manifest = load_runtime_manifest_from_zip(package_path)
             layout_result = validate_runtime_zip_layout(package_path, manifest)
             if not layout_result.ok:
@@ -177,11 +215,15 @@ class VoxCpmServiceManager(QObject):
             install_parent.mkdir(parents=True, exist_ok=True)
             staging_root = install_parent / f"{self._install_root.name}.import-staging"
             if staging_root.exists():
+                self.download_progress.emit("正在清理上次失败残留...")
                 shutil.rmtree(staging_root)
+            self.download_progress.emit("正在解压运行时包...")
             runtime_root = extract_runtime_zip_to_staging(package_path, staging_root)
+            self.download_progress.emit("正在更新运行时脚本...")
             write_runtime_manifest(runtime_root, manifest)
             self._rewrite_imported_runtime_scripts(runtime_root)
 
+            self.download_progress.emit("正在执行运行时自检...")
             health_ok, health_message = self._runtime_healthcheck_runner(runtime_root)
             if not health_ok:
                 shutil.rmtree(staging_root, ignore_errors=True)
@@ -195,6 +237,7 @@ class VoxCpmServiceManager(QObject):
             if self._install_root.exists():
                 self._install_root.rename(backup_root)
             try:
+                self.download_progress.emit("正在激活新的运行时...")
                 runtime_root.rename(self._install_root)
                 shutil.rmtree(staging_root, ignore_errors=True)
             except Exception:
@@ -214,6 +257,37 @@ class VoxCpmServiceManager(QObject):
         self._emit_status()
         return True
 
+    def import_model_package_async(self, package_path: Path) -> bool:
+        if self._download_active:
+            self._message = "VoxCPM 正在处理上一个任务。"
+            self._emit_status()
+            return False
+        if self.is_installing():
+            self._message = "VoxCPM 正在安装中。"
+            self._emit_status()
+            return False
+        if self.is_running():
+            self._message = "请先停止当前 VoxCPM 服务，再导入模型包。"
+            self._emit_status()
+            return False
+
+        self._download_active = True
+        self._message = f"正在导入 VoxCPM 模型包：{Path(package_path).name} ..."
+        self._emit_status()
+        threading.Thread(
+            target=self._import_model_package_sync,
+            args=(Path(package_path),),
+            daemon=True,
+        ).start()
+        return True
+
+    def _import_model_package_sync(self, package_path: Path) -> None:
+        try:
+            self.import_model_package(package_path)
+        finally:
+            self._download_active = False
+            self._emit_status()
+
     def import_model_package(self, package_path: Path) -> bool:
         if self.is_installing():
             self._message = "VoxCPM 正在安装中。"
@@ -229,6 +303,7 @@ class VoxCpmServiceManager(QObject):
             return False
 
         try:
+            self.download_progress.emit(f"正在校验 {package_path.name} ...")
             manifest = load_model_manifest_from_zip(package_path)
             layout_result = validate_model_zip_layout(package_path, manifest)
             if not layout_result.ok:
@@ -240,7 +315,9 @@ class VoxCpmServiceManager(QObject):
             model_parent.mkdir(parents=True, exist_ok=True)
             staging_root = model_parent / f"{self._model_cache_root.name}.model-staging"
             if staging_root.exists():
+                self.download_progress.emit("正在清理上次失败残留...")
                 shutil.rmtree(staging_root)
+            self.download_progress.emit("正在解压模型包...")
             model_root = extract_model_zip_to_staging(package_path, staging_root)
             write_model_manifest(model_root, manifest)
 
@@ -250,6 +327,7 @@ class VoxCpmServiceManager(QObject):
             if self._model_cache_root.exists():
                 self._model_cache_root.rename(backup_root)
             try:
+                self.download_progress.emit("正在激活新的模型目录...")
                 model_root.rename(self._model_cache_root)
                 shutil.rmtree(staging_root, ignore_errors=True)
             except Exception:
@@ -274,29 +352,29 @@ class VoxCpmServiceManager(QObject):
         *,
         namespace: str,
         repo_name: str,
-    ) -> None:
+    ) -> bool:
         if self._download_active:
-            return
+            self._message = "VoxCPM 正在处理上一个任务。"
+            self._emit_status()
+            return False
         if self.is_installing():
             self._message = "VoxCPM 正在安装中。"
             self._emit_status()
-            return
+            return False
         if self.is_running():
             self._message = "请先停止当前 VoxCPM 服务，再下载模型包。"
             self._emit_status()
-            return
+            return False
 
         runtime_state, runtime_manifest = self._detect_runtime_metadata()
         if runtime_state != "imported" or runtime_manifest is None:
             self._message = "请先导入 VoxCPM 运行时包，再下载模型包。"
             self._emit_status()
-            return
+            return False
         if not runtime_manifest.model_package_filename:
             self._message = "当前运行时未声明模型包文件名。"
             self._emit_status()
-            return
-
-        import threading
+            return False
 
         self._download_active = True
         self._message = "正在准备下载 VoxCPM 模型包..."
@@ -306,6 +384,7 @@ class VoxCpmServiceManager(QObject):
             args=(namespace, repo_name, runtime_manifest.model_package_filename),
             daemon=True,
         ).start()
+        return True
 
     def download_and_import_runtime_bundle(
         self,
@@ -314,18 +393,20 @@ class VoxCpmServiceManager(QObject):
         repo_name: str,
         runtime_filename: str,
         min_driver_version: str,
-    ) -> None:
+    ) -> bool:
         """Start async download+import.  Returns immediately; progress via download_progress, result via status_changed."""
         if self._download_active:
-            return
+            self._message = "VoxCPM 正在处理上一个任务。"
+            self._emit_status()
+            return False
         if self.is_installing():
             self._message = "VoxCPM 正在安装中。"
             self._emit_status()
-            return
+            return False
         if self.is_running():
             self._message = "请先停止当前 VoxCPM 服务，再下载运行时包。"
             self._emit_status()
-            return
+            return False
 
         environment_result = validate_runtime_environment(
             VoxCpmRuntimeManifest(
@@ -351,9 +432,7 @@ class VoxCpmServiceManager(QObject):
         if not environment_result.ok:
             self._message = environment_result.message
             self._emit_status()
-            return
-
-        import threading
+            return False
 
         self._download_active = True
         self._message = "正在准备下载 VoxCPM 运行时包..."
@@ -363,6 +442,7 @@ class VoxCpmServiceManager(QObject):
             args=(namespace, repo_name, runtime_filename, min_driver_version),
             daemon=True,
         ).start()
+        return True
 
     def _download_and_import_runtime_bundle_sync(
         self,

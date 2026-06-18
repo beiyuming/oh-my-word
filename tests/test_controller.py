@@ -558,14 +558,14 @@ class ControllerPopupActionTests(unittest.TestCase):
         controller.settings_store.save.return_value = current_settings
         controller.tray = Mock()
         controller.voxcpm_service = Mock()
-        controller.voxcpm_service.import_runtime_package.return_value = True
+        controller.voxcpm_service.import_runtime_package_async.return_value = True
 
         with patch("app.controller.QFileDialog.getOpenFileName", return_value=("D:\\Downloads\\runtime.zip", "zip")):
             controller.import_voxcpm_runtime_package()
 
         controller.settings_store.save.assert_called_once_with(current_settings)
-        controller.voxcpm_service.import_runtime_package.assert_called_once_with(Path("D:\\Downloads\\runtime.zip"))
-        controller.tray.show_message.assert_called_once_with("oh my word", "VoxCPM 运行时包导入成功。")
+        controller.voxcpm_service.import_runtime_package_async.assert_called_once_with(Path("D:\\Downloads\\runtime.zip"))
+        self.assertTrue(controller._pending_voxcpm_background_notice)
 
     def test_import_voxcpm_model_package_uses_file_dialog_and_manager(self) -> None:
         controller = AppController(self.app)
@@ -577,13 +577,13 @@ class ControllerPopupActionTests(unittest.TestCase):
         controller.settings_store.save.return_value = current_settings
         controller.tray = Mock()
         controller.voxcpm_service = Mock()
-        controller.voxcpm_service.import_model_package.return_value = True
+        controller.voxcpm_service.import_model_package_async.return_value = True
 
         with patch("app.controller.QFileDialog.getOpenFileName", return_value=("D:\\Downloads\\model.zip", "zip")):
             controller.import_voxcpm_model_package()
 
-        controller.voxcpm_service.import_model_package.assert_called_once_with(Path("D:\\Downloads\\model.zip"))
-        controller.tray.show_message.assert_called_once_with("oh my word", "VoxCPM 模型包导入成功。")
+        controller.voxcpm_service.import_model_package_async.assert_called_once_with(Path("D:\\Downloads\\model.zip"))
+        self.assertTrue(controller._pending_voxcpm_background_notice)
 
     def test_download_voxcpm_runtime_bundle_uses_manager(self) -> None:
         controller = AppController(self.app)
@@ -595,6 +595,7 @@ class ControllerPopupActionTests(unittest.TestCase):
         controller.settings_store.save.return_value = current_settings
         controller.tray = Mock()
         controller.voxcpm_service = Mock()
+        controller.voxcpm_service.download_and_import_runtime_bundle.return_value = True
 
         controller.download_and_import_voxcpm_runtime_bundle()
 
@@ -604,6 +605,7 @@ class ControllerPopupActionTests(unittest.TestCase):
             runtime_filename=current_settings.voxcpm_modelscope_runtime_filename,
             min_driver_version=current_settings.voxcpm_modelscope_min_driver_version,
         )
+        self.assertTrue(controller._pending_voxcpm_background_notice)
 
     def test_download_voxcpm_model_package_uses_manager(self) -> None:
         controller = AppController(self.app)
@@ -615,6 +617,7 @@ class ControllerPopupActionTests(unittest.TestCase):
         controller.settings_store.save.return_value = current_settings
         controller.tray = Mock()
         controller.voxcpm_service = Mock()
+        controller.voxcpm_service.download_and_import_model_package.return_value = True
 
         controller.download_and_import_voxcpm_model_package()
 
@@ -622,6 +625,21 @@ class ControllerPopupActionTests(unittest.TestCase):
             namespace=current_settings.voxcpm_modelscope_namespace,
             repo_name=current_settings.voxcpm_modelscope_repository,
         )
+        self.assertTrue(controller._pending_voxcpm_background_notice)
+
+    def test_on_voxcpm_status_changed_shows_completion_notice_for_background_task(self) -> None:
+        controller = AppController(self.app)
+        controller.settings_window = Mock()
+        controller.tray = Mock()
+        controller._pending_voxcpm_background_notice = True
+
+        status = type("Status", (), {"busy": False, "message": "已导入 VoxCPM 运行时包：runtime-id"})()
+
+        controller._on_voxcpm_status_changed(status)
+
+        controller.settings_window.set_voxcpm_status.assert_called_once_with(status)
+        controller.tray.show_message.assert_called_once_with("oh my word", "已导入 VoxCPM 运行时包：runtime-id")
+        self.assertFalse(controller._pending_voxcpm_background_notice)
 
     def test_create_tts_service_passes_voxcpm_stream_prebuffer_seconds(self) -> None:
         controller = AppController(self.app)

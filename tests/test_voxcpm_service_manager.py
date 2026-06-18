@@ -419,6 +419,40 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
             self.assertNotEqual(start_script.strip(), "start-service")
             self.assertNotEqual(healthcheck_script.strip(), "health-check")
 
+    def test_import_runtime_package_async_marks_manager_busy_and_spawns_thread(self) -> None:
+        calls: dict[str, Any] = {}
+
+        class FakeThread:
+            def __init__(self, *, target: Any, args: tuple[Any, ...], daemon: bool) -> None:
+                calls["target"] = target
+                calls["args"] = args
+                calls["daemon"] = daemon
+
+            def start(self) -> None:
+                calls["started"] = True
+
+        with (
+            TemporaryDirectory() as tmp_dir,
+            patch("app.voxcpm_service.threading.Thread", FakeThread),
+        ):
+            root = Path(tmp_dir)
+            zip_path = root / "runtime.zip"
+            _write_runtime_package(zip_path)
+            manager = VoxCpmServiceManager(
+                install_root=root / "voxcpm",
+                model_cache_root=root / "voxcpm" / "models",
+                script_root=root / "scripts",
+            )
+
+            self.assertTrue(manager.import_runtime_package_async(zip_path))
+
+            status = manager.status()
+            self.assertTrue(status.busy)
+            self.assertIn("正在导入 VoxCPM 运行时包", status.message)
+            self.assertTrue(calls["started"])
+            self.assertEqual(calls["args"], (zip_path,))
+            self.assertTrue(calls["daemon"])
+
     def test_runtime_healthcheck_imports_service_module_with_runtime_python(self) -> None:
         calls: list[tuple[list[str], dict[str, Any]]] = []
 

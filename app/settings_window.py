@@ -559,6 +559,7 @@ class SettingsDialog(QDialog):
         installed = bool(getattr(status, "installed", False))
         running = bool(getattr(status, "running", False))
         installing = bool(getattr(status, "installing", False))
+        busy = bool(getattr(status, "busy", False))
         message = str(getattr(status, "message", "") or "")
         log_path = getattr(status, "log_path", None)
         runtime_state = str(getattr(status, "runtime_state", "") or "")
@@ -569,6 +570,8 @@ class SettingsDialog(QDialog):
 
         if installing:
             install_status = "安装中"
+        elif busy:
+            install_status = "处理中"
         elif runtime_state == "imported":
             install_status = "已导入"
         elif runtime_state == "legacy":
@@ -592,11 +595,11 @@ class SettingsDialog(QDialog):
         self._voxcpm_runtime_meta.setText(" | ".join(runtime_meta_parts))
         self._voxcpm_service_status.setText("运行中" if running else "未运行")
         self._voxcpm_message.setText(message or (f"日志：{log_path}" if log_path else ""))
-        self._voxcpm_runtime_button.setEnabled(not installing)
-        self._voxcpm_runtime_download_button.setEnabled(not installing)
-        self._voxcpm_model_download_button.setEnabled(not installing)
-        self._voxcpm_model_button.setEnabled(not installing)
-        self._voxcpm_start_button.setEnabled(installed and not running and not installing)
+        self._voxcpm_runtime_button.setEnabled(not busy)
+        self._voxcpm_runtime_download_button.setEnabled(not busy)
+        self._voxcpm_model_download_button.setEnabled(not busy)
+        self._voxcpm_model_button.setEnabled(not busy)
+        self._voxcpm_start_button.setEnabled(installed and not running and not busy)
         self._voxcpm_stop_button.setEnabled(running)
         self._voxcpm_open_log_button.setEnabled(log_path is not None)
 
