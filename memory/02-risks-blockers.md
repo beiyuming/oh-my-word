@@ -66,11 +66,11 @@
 - 影响：目标机器既可能在探测 `python` / `python3` 候选时命中 `Arguments` 为空数组的 PowerShell 绑定异常，也可能在探测到多个 Python 候选时把数组对象误传给 `Invoke-Native -FilePath`，出现 `Using Python runtime: py -3.11 py -3 python` 这类异常日志。
 - 处理：在用户确认本轮修复完成并决定如何处理现有 `v0.1.9` Release 前，不要再递增版本号；后续覆盖现有 `.9` 资产时，要基于本地最新打包结果执行受控提交/推送/更新 tag 或 release asset，并明确说明远端旧资产曾包含哪两类安装脚本缺陷。
 
-### 11. ModelScope 直连下载链路仍未做真实仓库端到端验证
+### 11. ModelScope 线上资产已验证，但设置页真实点击链路仍待手工回归
 
-- 风险：当前代码已经接入 `下载并导入运行时包` 与 `下载并导入模型包`，默认值已切到 `borealis/oh-my-word-voxcpm2-runtime`，且默认 runtime 文件名已切到 `voxcpm2-runtime-win-x64-cu130-r2.zip`；但这些值尚未对真实线上 ModelScope 仓库做一次成功的下载、checksum、导入、启动和合成验证。
-- 影响：即使当前单元测试全部通过，真实用户环境里仍可能因为仓库名、文件名、权限、下载地址、`*.zip.sha256` 布局，或线上仍保留旧 `.venv` 版 `r1` 资产而失败。
-- 处理：上线前需要先把新的 self-contained `r2` runtime 包、模型包和 `.zip.sha256` 文件上传到目标 ModelScope 仓库，再从设置页执行一次完整的 `下载并导入运行时包` 端到端验证，并据实回填常量和值。
+- 风险：2026-06-19 已确认真实线上 `voxcpm2-runtime-win-x64-cu130-r2.zip` / `voxcpm2-model-cu130-r2.zip` 及其 `*.sha256` 可下载、校验匹配，并在隔离目录跑通 `runtime 导入 → model 导入 → start_service() → /health`；但这次验证走的是 `VoxCpmServiceManager` 代码路径，不是打包后设置页上的真实按钮点击。
+- 影响：核心导入/启动逻辑和魔搭资产本身已被验证，用户再遇到“缺 Python”或“导入失败”时，优先怀疑本地旧安装残留、客户端版本落后，或 GUI 线程/对话框层面的额外交互问题，而不是线上 `r2` 包内容错误。
+- 处理：后续最好在打包产物上再手工点一次设置页的 `下载并导入运行时包` / `下载并导入模型包` / `启动服务`，把 GUI 层也闭环；若继续出现问题，应直接抓 `storage\app.log` 与 `install.log`，而不是重新怀疑魔搭资产布局。
 
 ### 12. VoxCPM 下载/导入虽然已异步，但进度仍只有阶段文本
 

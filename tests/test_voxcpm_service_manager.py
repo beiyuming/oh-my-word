@@ -457,6 +457,41 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
             self.assertNotEqual(start_script.strip(), "start-service")
             self.assertNotEqual(healthcheck_script.strip(), "health-check")
 
+    def test_import_runtime_package_falls_back_to_shutil_move_when_runtime_rename_is_denied(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            zip_path = root / "runtime.zip"
+            _write_runtime_package(zip_path)
+            install_root = root / "voxcpm"
+            staging_runtime_root = root / "voxcpm.import-staging" / "runtime"
+            original_rename = Path.rename
+
+            def flaky_rename(path_self: Path, target: Path) -> Path:
+                if Path(path_self) == staging_runtime_root and Path(target) == install_root:
+                    raise PermissionError(13, "拒绝访问。")
+                return original_rename(path_self, target)
+
+            manager = VoxCpmServiceManager(
+                install_root=install_root,
+                model_cache_root=install_root / "models",
+                script_root=root / "scripts",
+                environment_probe=lambda: {
+                    "target_os": "windows",
+                    "target_arch": "x64",
+                    "has_nvidia_gpu": True,
+                    "driver_version": "552.12",
+                    "free_bytes": 10_000_000,
+                },
+                runtime_healthcheck_runner=lambda _runtime_root: (True, "ok"),
+            )
+
+            with patch("pathlib.Path.rename", new=flaky_rename):
+                self.assertTrue(manager.import_runtime_package(zip_path))
+
+            self.assertTrue(_runtime_install_python_path(install_root).exists())
+            self.assertFalse(staging_runtime_root.exists())
+            self.assertEqual(manager.status().runtime_state, "imported")
+
     def test_import_runtime_package_async_marks_manager_busy_and_spawns_thread(self) -> None:
         calls: dict[str, Any] = {}
 
@@ -544,6 +579,34 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
 
             self.assertTrue((model_root / "VoxCPM2-local" / "model.safetensors").exists())
             self.assertTrue((model_root / "model_manifest.json").exists())
+
+    def test_import_model_package_falls_back_to_shutil_move_when_model_rename_is_denied(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            install_root = root / "voxcpm"
+            model_root = install_root / "models"
+            package_path = root / "model.zip"
+            _write_model_package(package_path)
+            _write_installed_runtime(install_root)
+            staging_model_root = root / "models.model-staging" / "models"
+            original_rename = Path.rename
+
+            def flaky_rename(path_self: Path, target: Path) -> Path:
+                if Path(path_self) == staging_model_root and Path(target) == model_root:
+                    raise PermissionError(13, "拒绝访问。")
+                return original_rename(path_self, target)
+
+            manager = VoxCpmServiceManager(
+                install_root=install_root,
+                model_cache_root=model_root,
+                script_root=root / "scripts",
+            )
+
+            with patch("pathlib.Path.rename", new=flaky_rename):
+                self.assertTrue(manager.import_model_package(package_path))
+
+            self.assertTrue((model_root / "VoxCPM2-local" / "model.safetensors").exists())
+            self.assertFalse(staging_model_root.exists())
 
     def test_download_and_import_runtime_bundle_rejects_old_driver_before_download(self) -> None:
         calls = {"urlopen": 0}

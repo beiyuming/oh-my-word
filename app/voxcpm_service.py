@@ -238,7 +238,7 @@ class VoxCpmServiceManager(QObject):
                 self._install_root.rename(backup_root)
             try:
                 self.download_progress.emit("正在激活新的运行时...")
-                runtime_root.rename(self._install_root)
+                self._promote_directory(runtime_root, self._install_root)
                 shutil.rmtree(staging_root, ignore_errors=True)
             except Exception:
                 if self._install_root.exists():
@@ -328,7 +328,7 @@ class VoxCpmServiceManager(QObject):
                 self._model_cache_root.rename(backup_root)
             try:
                 self.download_progress.emit("正在激活新的模型目录...")
-                model_root.rename(self._model_cache_root)
+                self._promote_directory(model_root, self._model_cache_root)
                 shutil.rmtree(staging_root, ignore_errors=True)
             except Exception:
                 if self._model_cache_root.exists():
@@ -940,6 +940,15 @@ class VoxCpmServiceManager(QObject):
 
     def _python_executable(self) -> Path:
         return self._runtime_python_executable(self._install_root)
+
+    @staticmethod
+    def _promote_directory(source_root: Path, target_root: Path) -> None:
+        try:
+            source_root.rename(target_root)
+        except PermissionError:
+            if target_root.exists():
+                shutil.rmtree(target_root, ignore_errors=True)
+            shutil.move(str(source_root), str(target_root))
 
     @staticmethod
     def _runtime_python_executable(runtime_root: Path) -> Path:

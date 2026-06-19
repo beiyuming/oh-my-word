@@ -71,8 +71,8 @@
 
 ### 11. 安装包和设置页使用版本化发布记录
 
-- 当前版本号来源为 `app/version.py`，当前值随发布递增；当前工作树版本为 `0.1.16`。
-- `build/build_installer.ps1` 默认输出带版本号的安装包，例如 `dist/oh-my-word-setup-v0.1.16.exe`。
+- 当前版本号来源为 `app/version.py`，当前值随发布递增；当前工作树版本为 `0.1.17`。
+- `build/build_installer.ps1` 默认输出带版本号的安装包，例如 `dist/oh-my-word-setup-v0.1.17.exe`。
 - 设置窗口必须包含“关于”页，显示当前版本和更新日志。
 - 后续每次重新打包发布都应先更新版本号和更新日志，再构建安装包。
 - 每次完成更新安装包打包后，还应以包含版本号的提交信息提交本次发布相关变更，推送到 GitHub，创建同版本 tag，并创建带安装包 asset 的 GitHub Release。
@@ -80,7 +80,7 @@
 
 ### 12. 当前工作树版本以 `app/version.py` 为单一事实源
 
-- 当前工作树版本值为 `0.1.16`。
+- 当前工作树版本值为 `0.1.17`。
 - 设置页关于页、安装器默认输出名和发布标签都必须从同一个版本源派生，不能在 UI、脚本或文档中手写另一份“当前版本”。
 
 ### 13. 弹窗自动朗读默认关闭，由 controller 持有定时器语义
@@ -109,3 +109,9 @@
 - 运行时包的受支持主布局已切换为 `runtime/python/python.exe + runtime/service/... + runtime/start_service.ps1 + runtime/healthcheck.ps1`，不能再依赖目标机器预装 Python。
 - 应用导入、检测、启动和 staging 自检逻辑同时兼容新 portable 布局与旧 `.venv` 布局，保证已下载旧包的用户仍可手动导入。
 - 默认下载入口已切到 `voxcpm2-runtime-win-x64-cu130-r2.zip`；模型包资产随同切到 `voxcpm2-model-cu130-r2.zip`。
+
+### 17. Windows 上 staging 目录激活需允许 `rename -> shutil.move` 回退
+
+- 2026-06-19 在真实 `r2` runtime/model 包的隔离导入测试中，`Path.rename()` 会在目录激活阶段稳定触发 `WinError 5 拒绝访问`，但对同一源目录改用 `shutil.move()` 可成功完成激活。
+- 因此 `app/voxcpm_service.py` 的运行时目录和模型目录激活统一采用：先 `rename`，遇到 `PermissionError` 时清理半成品目标目录，再回退到 `shutil.move()`。
+- 这个回退是针对 Windows 文件系统行为的兼容修复，不改变包格式、manifest 规则、健康检查方式或用户设置语义。

@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 
-APP_VERSION = "0.1.16"
+APP_VERSION = "0.1.17"
 
 
 @dataclass(slots=True, frozen=True)
@@ -14,6 +14,15 @@ class ChangelogEntry:
 
 
 CHANGELOG: tuple[ChangelogEntry, ...] = (
+    ChangelogEntry(
+        version="0.1.17",
+        date="2026-06-20",
+        changes=(
+            "修复 Windows 上导入 VoxCPM 运行时包或模型包时，目录激活阶段偶发 WinError 5 拒绝访问导致导入失败的问题。",
+            "运行时目录和模型目录现在会优先使用 rename 激活，若命中 PermissionError 则自动回退到 shutil.move。",
+            "已用真实魔搭 r2 运行时包和模型包完成隔离端到端验证，确认导入后可启动本地服务并通过 /health 检查。",
+        ),
+    ),
     ChangelogEntry(
         version="0.1.16",
         date="2026-06-19",
