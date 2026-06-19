@@ -3,13 +3,17 @@
 from app.version import APP_VERSION, CHANGELOG, formatted_changelog
 
 
-def test_current_version_is_0_1_15() -> None:
-    assert APP_VERSION == "0.1.15"
+def test_current_version_is_0_1_16() -> None:
+    assert APP_VERSION == "0.1.16"
 
 
 def test_changelog_mentions_current_and_prior_updates() -> None:
     text = formatted_changelog()
 
+    assert "v0.1.16" in text
+    assert "portable Python" in text
+    assert "runtime\\python\\python.exe" in text
+    assert "voxcpm2-runtime-win-x64-cu130-r2.zip" in text
     assert "v0.1.15" in text
     assert "后台线程执行" in text
     assert "校验、清理残留、解压、自检和激活阶段提示" in text
@@ -53,4 +57,4 @@ def test_changelog_mentions_current_and_prior_updates() -> None:
     assert "安装包文件名带版本号" in text
     assert "VoxCPM" in text
     assert "流式" in text
-    assert CHANGELOG[0].version == "0.1.15"
+    assert CHANGELOG[0].version == "0.1.16"

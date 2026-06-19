@@ -54,11 +54,32 @@ def _sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _write_runtime_package(zip_path: Path) -> None:
+def _runtime_package_python_path(*, legacy_layout: bool = False) -> str:
+    if legacy_layout:
+        return "runtime/.venv/Scripts/python.exe"
+    return "runtime/python/python.exe"
+
+
+def _runtime_install_python_path(runtime_root: Path, *, legacy_layout: bool = False) -> Path:
+    if legacy_layout:
+        return runtime_root / ".venv" / "Scripts" / "python.exe"
+    return runtime_root / "python" / "python.exe"
+
+
+def _write_installed_runtime(install_root: Path, *, legacy_layout: bool = False) -> Path:
+    python_path = _runtime_install_python_path(install_root, legacy_layout=legacy_layout)
+    python_path.parent.mkdir(parents=True, exist_ok=True)
+    python_path.write_text("", encoding="utf-8")
+    (install_root / "start_service.ps1").write_text("", encoding="utf-8")
+    return python_path
+
+
+def _write_runtime_package(zip_path: Path, *, legacy_layout: bool = False) -> None:
     python_payload = b"python-runtime"
     start_payload = b"start-service"
     health_payload = b"health-check"
     service_payload = b"service-code"
+    runtime_python_path = _runtime_package_python_path(legacy_layout=legacy_layout)
     with zipfile.ZipFile(zip_path, "w") as archive:
         archive.writestr(
             "manifest.json",
@@ -79,7 +100,7 @@ def _write_runtime_package(zip_path: Path) -> None:
                     "expected_layout_version": 1,
                     "package_size": 1024,
                     "file_hashes": {
-                        "runtime/.venv/Scripts/python.exe": _sha256_bytes(python_payload),
+                        runtime_python_path: _sha256_bytes(python_payload),
                         "runtime/start_service.ps1": _sha256_bytes(start_payload),
                         "runtime/healthcheck.ps1": _sha256_bytes(health_payload),
                         "runtime/service/server.py": _sha256_bytes(service_payload),
@@ -88,7 +109,9 @@ def _write_runtime_package(zip_path: Path) -> None:
                 }
             ),
         )
-        archive.writestr("runtime/.venv/Scripts/python.exe", python_payload)
+        archive.writestr(runtime_python_path, python_payload)
+        if not legacy_layout:
+            archive.writestr("runtime/.venv/Scripts/python.exe", python_payload)
         archive.writestr("runtime/start_service.ps1", start_payload)
         archive.writestr("runtime/healthcheck.ps1", health_payload)
         archive.writestr("runtime/service/server.py", service_payload)
@@ -123,9 +146,7 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
     def test_detects_runtime_installation_from_imported_runtime_manifest(self) -> None:
         with TemporaryDirectory() as tmp_dir:
             install_root = Path(tmp_dir) / "voxcpm"
-            (install_root / ".venv" / "Scripts").mkdir(parents=True)
-            (install_root / ".venv" / "Scripts" / "python.exe").write_text("", encoding="utf-8")
-            (install_root / "start_service.ps1").write_text("", encoding="utf-8")
+            _write_installed_runtime(install_root)
             (install_root / "runtime_manifest.json").write_text(
                 json.dumps(
                     {
@@ -139,8 +160,8 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
                         "torch_version": "2.6.0",
                         "model_id": "openbmb/VoxCPM2",
                         "model_version": "2026-06-18",
-                        "model_package_id": "voxcpm2-model-cu130-r1",
-                        "model_package_filename": "voxcpm2-model-cu130-r1.zip",
+                        "model_package_id": "voxcpm2-model-cu130-r2",
+                        "model_package_filename": "voxcpm2-model-cu130-r2.zip",
                         "expected_layout_version": 1,
                         "package_size": 1024,
                         "file_hashes": {},
@@ -166,9 +187,7 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
     def test_detects_installation_from_python_and_start_script(self) -> None:
         with TemporaryDirectory() as tmp_dir:
             install_root = Path(tmp_dir) / "voxcpm"
-            (install_root / ".venv" / "Scripts").mkdir(parents=True)
-            (install_root / ".venv" / "Scripts" / "python.exe").write_text("", encoding="utf-8")
-            (install_root / "start_service.ps1").write_text("", encoding="utf-8")
+            _write_installed_runtime(install_root)
 
             manager = VoxCpmServiceManager(
                 install_root=install_root,
@@ -182,9 +201,7 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
     def test_reports_legacy_install_when_manifest_is_missing(self) -> None:
         with TemporaryDirectory() as tmp_dir:
             install_root = Path(tmp_dir) / "voxcpm"
-            (install_root / ".venv" / "Scripts").mkdir(parents=True)
-            (install_root / ".venv" / "Scripts" / "python.exe").write_text("", encoding="utf-8")
-            (install_root / "start_service.ps1").write_text("", encoding="utf-8")
+            _write_installed_runtime(install_root, legacy_layout=True)
 
             manager = VoxCpmServiceManager(
                 install_root=install_root,
@@ -218,9 +235,7 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmp_dir:
             install_root = Path(tmp_dir) / "voxcpm"
-            (install_root / ".venv" / "Scripts").mkdir(parents=True)
-            (install_root / ".venv" / "Scripts" / "python.exe").write_text("", encoding="utf-8")
-            (install_root / "start_service.ps1").write_text("", encoding="utf-8")
+            _write_installed_runtime(install_root)
             manager = VoxCpmServiceManager(
                 install_root=install_root,
                 model_cache_root=install_root / "models",
@@ -249,9 +264,7 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmp_dir:
             install_root = Path(tmp_dir) / "voxcpm"
-            (install_root / ".venv" / "Scripts").mkdir(parents=True)
-            (install_root / ".venv" / "Scripts" / "python.exe").write_text("", encoding="utf-8")
-            (install_root / "start_service.ps1").write_text("", encoding="utf-8")
+            _write_installed_runtime(install_root)
             manager = VoxCpmServiceManager(
                 install_root=install_root,
                 model_cache_root=install_root / "models",
@@ -381,8 +394,33 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
             self.assertTrue(status.installed)
             self.assertEqual(status.runtime_state, "imported")
             self.assertEqual(status.runtime_id, "voxcpm2-runtime-win-x64-cu124-r1")
-            self.assertTrue((install_root / ".venv" / "Scripts" / "python.exe").exists())
+            self.assertTrue(_runtime_install_python_path(install_root).exists())
             self.assertTrue((install_root / "runtime_manifest.json").exists())
+
+    def test_import_runtime_package_accepts_legacy_runtime_bundle(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            zip_path = root / "runtime.zip"
+            _write_runtime_package(zip_path, legacy_layout=True)
+            install_root = root / "voxcpm"
+
+            manager = VoxCpmServiceManager(
+                install_root=install_root,
+                model_cache_root=install_root / "models",
+                script_root=root / "scripts",
+                environment_probe=lambda: {
+                    "target_os": "windows",
+                    "target_arch": "x64",
+                    "has_nvidia_gpu": True,
+                    "driver_version": "552.12",
+                    "free_bytes": 10_000_000,
+                },
+                runtime_healthcheck_runner=lambda _runtime_root: (True, "ok"),
+            )
+
+            self.assertTrue(manager.import_runtime_package(zip_path))
+            self.assertTrue(_runtime_install_python_path(install_root, legacy_layout=True).exists())
+            self.assertEqual(manager.status().runtime_state, "imported")
 
     def test_import_runtime_package_rewrites_runtime_scripts_for_current_paths(self) -> None:
         with TemporaryDirectory() as tmp_dir:
@@ -466,7 +504,7 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
         ):
             root = Path(tmp_dir)
             runtime_root = root / "runtime"
-            python_path = runtime_root / ".venv" / "Scripts" / "python.exe"
+            python_path = _runtime_install_python_path(runtime_root)
             service_server_path = runtime_root / "service" / "server.py"
             python_path.parent.mkdir(parents=True, exist_ok=True)
             service_server_path.parent.mkdir(parents=True, exist_ok=True)
@@ -494,9 +532,7 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
             model_root = install_root / "models"
             package_path = root / "model.zip"
             _write_model_package(package_path)
-            (install_root / ".venv" / "Scripts").mkdir(parents=True)
-            (install_root / ".venv" / "Scripts" / "python.exe").write_text("", encoding="utf-8")
-            (install_root / "start_service.ps1").write_text("", encoding="utf-8")
+            _write_installed_runtime(install_root)
 
             manager = VoxCpmServiceManager(
                 install_root=install_root,

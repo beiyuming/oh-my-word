@@ -15,6 +15,9 @@
 
 ## 最近验证
 
+- 2026-06-19 v0.1.16 VoxCPM runtime 自包含修复：`build/build_voxcpm2_packages.py` 已从“直接打包 `.venv`”改为组装 `runtime/python/` portable Python 运行时，并把 `site-packages` / service 文件打进 runtime zip；`app/voxcpm_service.py` 与 `app/voxcpm_runtime.py` 已兼容新 `runtime/python/python.exe` 布局和旧 `.venv` 布局。
+- 2026-06-19 v0.1.16 默认资产切换：`app/models.py` 默认 runtime 下载名已切到 `voxcpm2-runtime-win-x64-cu130-r2.zip`；README / stable specs 已明确预构建 runtime 包不依赖宿主 Python，普通用户继续通过设置页下载或导入。
+- 2026-06-19 v0.1.16 验证：`py -3.11 -m pytest tests/test_voxcpm_runtime.py tests/test_voxcpm_service_manager.py tests/test_version.py tests/test_voxcpm_service_files.py -q` 通过，结果为 58 个测试通过；`py -3.11 -m pytest tests -q` 通过，结果为 193 个测试通过。
 - 2026-06-18 v0.1.15 导入不卡死修复：`app/controller.py` 的 `导入 VoxCPM 运行时包 / 导入模型包` 已改为调用 `VoxCpmServiceManager` 的后台线程入口，不再把 ZIP 校验、清理残留、解压和运行时自检堵在 UI 线程。
 - 2026-06-18 v0.1.15 状态反馈修复：`app/voxcpm_service.py` 在手动导入过程中会发送阶段性进度文案（校验、清理、解压、自检、激活），`app/settings_window.py` 会在后台任务期间显示“处理中”并禁用重复点击按钮，完成后托盘补发结果提示。
 - 2026-06-18 v0.1.15 验证：`py -3.11 -m pytest tests/test_voxcpm_service_manager.py tests/test_controller.py tests/test_settings_window.py -q` 通过，结果为 68 个测试通过；`py -3.11 -m pytest tests -q` 通过，结果为 191 个测试通过；`.\build\build_installer.ps1` 生成 `dist\oh-my-word-setup-v0.1.15.exe`；`dist\oh-my-word-py\oh-my-word-py.exe` 隐藏短启动 8 秒后进程仍存活，并确认生成 exe 同级 `storage\app.log` 与 `storage\oh_my_word.sqlite3`。

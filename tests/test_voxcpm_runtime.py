@@ -40,8 +40,8 @@ class VoxCpmRuntimeTests(unittest.TestCase):
                             "torch_version": "2.6.0",
                             "model_id": "openbmb/VoxCPM2",
                             "model_version": "2026-06-18",
-                            "model_package_id": "voxcpm2-model-cu130-r1",
-                            "model_package_filename": "voxcpm2-model-cu130-r1.zip",
+                            "model_package_id": "voxcpm2-model-cu130-r2",
+                            "model_package_filename": "voxcpm2-model-cu130-r2.zip",
                             "expected_layout_version": 1,
                             "package_size": 123,
                             "file_hashes": {},
@@ -55,7 +55,7 @@ class VoxCpmRuntimeTests(unittest.TestCase):
         self.assertEqual(manifest.runtime_id, "voxcpm2-runtime-win-x64-cu124-r1")
         self.assertEqual(manifest.cuda_tag, "cu124")
         self.assertEqual(manifest.min_driver_version, "551.00")
-        self.assertEqual(manifest.model_package_filename, "voxcpm2-model-cu130-r1.zip")
+        self.assertEqual(manifest.model_package_filename, "voxcpm2-model-cu130-r2.zip")
 
     def test_rejects_zip_without_runtime_directory(self) -> None:
         with TemporaryDirectory() as tmp_dir:
@@ -75,8 +75,8 @@ class VoxCpmRuntimeTests(unittest.TestCase):
                             "torch_version": "2.6.0",
                             "model_id": "openbmb/VoxCPM2",
                             "model_version": "2026-06-18",
-                            "model_package_id": "voxcpm2-model-cu130-r1",
-                            "model_package_filename": "voxcpm2-model-cu130-r1.zip",
+                            "model_package_id": "voxcpm2-model-cu130-r2",
+                            "model_package_filename": "voxcpm2-model-cu130-r2.zip",
                             "expected_layout_version": 1,
                             "package_size": 123,
                             "file_hashes": {},
@@ -114,13 +114,60 @@ class VoxCpmRuntimeTests(unittest.TestCase):
                             "torch_version": "2.6.0",
                             "model_id": "openbmb/VoxCPM2",
                             "model_version": "2026-06-18",
-                            "model_package_id": "voxcpm2-model-cu130-r1",
-                            "model_package_filename": "voxcpm2-model-cu130-r1.zip",
+                            "model_package_id": "voxcpm2-model-cu130-r2",
+                            "model_package_filename": "voxcpm2-model-cu130-r2.zip",
+                            "expected_layout_version": 1,
+                            "package_size": 123,
+                            "file_hashes": {
+                                "runtime/python/python.exe": _sha256_bytes(python_payload),
+                                "runtime/start_service.ps1": "deadbeef",
+                                "runtime/healthcheck.ps1": _sha256_bytes(health_payload),
+                                "runtime/service/server.py": _sha256_bytes(service_payload),
+                            },
+                            "built_at": "2026-06-18T12:00:00Z",
+                        }
+                    ),
+                )
+                archive.writestr("runtime/python/python.exe", python_payload)
+                archive.writestr("runtime/start_service.ps1", start_payload)
+                archive.writestr("runtime/healthcheck.ps1", health_payload)
+                archive.writestr("runtime/service/server.py", service_payload)
+
+            manifest = load_runtime_manifest_from_zip(zip_path)
+            result = validate_runtime_zip_layout(zip_path, manifest)
+
+        self.assertFalse(result.ok)
+        self.assertIn("hash", result.message.lower())
+
+    def test_accepts_legacy_runtime_venv_layout(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            zip_path = Path(tmp_dir) / "runtime.zip"
+            python_payload = b"python-bytes"
+            start_payload = b"start-script"
+            health_payload = b"health-script"
+            service_payload = b"service-code"
+            with zipfile.ZipFile(zip_path, "w") as archive:
+                archive.writestr(
+                    "manifest.json",
+                    json.dumps(
+                        {
+                            "runtime_id": "voxcpm2-runtime-win-x64-cu124-r1",
+                            "runtime_version": "r1",
+                            "target_os": "windows",
+                            "target_arch": "x64",
+                            "cuda_tag": "cu124",
+                            "min_driver_version": "551.00",
+                            "python_version": "3.11.9",
+                            "torch_version": "2.6.0",
+                            "model_id": "openbmb/VoxCPM2",
+                            "model_version": "2026-06-18",
+                            "model_package_id": "voxcpm2-model-cu130-r2",
+                            "model_package_filename": "voxcpm2-model-cu130-r2.zip",
                             "expected_layout_version": 1,
                             "package_size": 123,
                             "file_hashes": {
                                 "runtime/.venv/Scripts/python.exe": _sha256_bytes(python_payload),
-                                "runtime/start_service.ps1": "deadbeef",
+                                "runtime/start_service.ps1": _sha256_bytes(start_payload),
                                 "runtime/healthcheck.ps1": _sha256_bytes(health_payload),
                                 "runtime/service/server.py": _sha256_bytes(service_payload),
                             },
@@ -136,8 +183,7 @@ class VoxCpmRuntimeTests(unittest.TestCase):
             manifest = load_runtime_manifest_from_zip(zip_path)
             result = validate_runtime_zip_layout(zip_path, manifest)
 
-        self.assertFalse(result.ok)
-        self.assertIn("hash", result.message.lower())
+        self.assertTrue(result.ok)
 
     def test_driver_version_comparison_handles_multi_part_versions(self) -> None:
         self.assertLess(compare_version_parts("551.00", "552.12"), 0)
@@ -162,8 +208,8 @@ class VoxCpmRuntimeTests(unittest.TestCase):
                             "torch_version": "2.6.0",
                             "model_id": "openbmb/VoxCPM2",
                             "model_version": "2026-06-18",
-                            "model_package_id": "voxcpm2-model-cu130-r1",
-                            "model_package_filename": "voxcpm2-model-cu130-r1.zip",
+                            "model_package_id": "voxcpm2-model-cu130-r2",
+                            "model_package_filename": "voxcpm2-model-cu130-r2.zip",
                             "expected_layout_version": 1,
                             "package_size": 123,
                             "file_hashes": {},
@@ -206,8 +252,8 @@ class VoxCpmRuntimeTests(unittest.TestCase):
                             "torch_version": "2.6.0",
                             "model_id": "openbmb/VoxCPM2",
                             "model_version": "2026-06-18",
-                            "model_package_id": "voxcpm2-model-cu130-r1",
-                            "model_package_filename": "voxcpm2-model-cu130-r1.zip",
+                            "model_package_id": "voxcpm2-model-cu130-r2",
+                            "model_package_filename": "voxcpm2-model-cu130-r2.zip",
                             "expected_layout_version": 1,
                             "package_size": 123,
                             "file_hashes": {},
@@ -244,7 +290,7 @@ class VoxCpmRuntimeTests(unittest.TestCase):
                         {
                             "model_id": "openbmb/VoxCPM2",
                             "model_version": "2026-06-18",
-                            "model_package_filename": "voxcpm2-model-cu130-r1.zip",
+                            "model_package_filename": "voxcpm2-model-cu130-r2.zip",
                             "expected_model_dir": "VoxCPM2-local",
                             "package_size": 456,
                             "file_hashes": {

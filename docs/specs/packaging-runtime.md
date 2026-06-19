@@ -56,7 +56,7 @@ py -3.11 -m pytest tests -q
 
 安装包默认输出为带版本号的文件名，例如 `dist/oh-my-word-setup-v0.1.10.exe`。版本号必须来自代码内单一版本源，并同步显示在安装器窗口标题/主标题和设置页关于/更新日志中；后续每次重新打包发布都必须递增或明确维护版本号和更新日志。安装器由 build 脚本生成 C# WinForms 程序并用系统 `csc.exe` 编译，必须允许用户选择安装目录，并提供桌面快捷方式、开始菜单快捷方式和安装完成后启动应用的选项。
 
-当产品采用预构建 VoxCPM2 运行时时，主应用安装器与 runtime package/运行时包分开发布：GitHub Release 负责主安装器与说明文件，ModelScope 负责与环境矩阵绑定的运行时包、模型包和对应 checksum 文件，例如 `voxcpm2-runtime-win-x64-cu130-r1.zip` 与 `voxcpm2-model-cu130-r1.zip`。主应用安装器负责桌面应用本体，运行时包与模型包负责 Windows 10/11 x64 + NVIDIA GPU 的受支持 VoxCPM2 本地运行时矩阵。
+当产品采用预构建 VoxCPM2 运行时时，主应用安装器与 runtime package/运行时包分开发布：GitHub Release 负责主安装器与说明文件，ModelScope 负责与环境矩阵绑定的运行时包、模型包和对应 checksum 文件，例如 `voxcpm2-runtime-win-x64-cu130-r2.zip`、`voxcpm2-runtime-win-x64-cu130-r2.zip.sha256`、`voxcpm2-model-cu130-r2.zip` 与 `voxcpm2-model-cu130-r2.zip.sha256`。主应用安装器负责桌面应用本体，运行时包与模型包负责 Windows 10/11 x64 + NVIDIA GPU 的受支持 VoxCPM2 本地运行时矩阵。
 
 每次“更新并重新打包安装包”完成后，发布流程必须执行一次 Git 提交、推送到 GitHub、创建同版本 tag，并创建 GitHub Release。提交前必须完成对应验证，并只暂存本次发布相关的源码、测试、文档、版本号、更新日志和打包脚本；不得因工作区已有 dirty 状态而把无关文件带入提交。生成的 `dist/` 安装包和 portable payload 默认仍是构建产物，不进入 Git 提交；只有用户明确要求跟踪某个发布产物时才可以暂存。提交信息应包含版本号，例如 `release: v0.1.10`；tag 应使用同一版本号，例如 `v0.1.10`。
 
@@ -66,7 +66,7 @@ py -3.11 -m pytest tests -q
 
 安装器不再提供 `Install local VoxCPM pronunciation engine`、镜像开关、模型目录选择或任何脚本式 VoxCPM setup UI。主安装器只负责主程序文件、快捷方式和卸载脚本；VoxCPM2 的运行时和模型统一在应用设置页内通过 ModelScope 下载或手动导入完成。
 
-安装后的主应用还必须能从设置页优先下载并导入 ModelScope 上的 VoxCPM2 运行时包和模型包，因此 portable payload 中的 VoxCPM 文件只能包含轻量 service-only 文件：`install_local.ps1`、`server.py`、`engine.py`、`requirements.txt`、`README.md`。不得整目录打包 `tools/voxcpm_service/`，避免误带入 `__pycache__`、`.venv`、模型权重、Torch/CUDA wheel、Hugging Face/ModelScope 下载缓存或其它机器相关产物。应用内应支持四条路径：`下载并导入运行时包`、`下载并导入模型包`、`导入运行时包`、`导入模型包`。运行时导入时，运行时仍落位到用户设置的 `voxcpm_install_root`；模型包导入时，模型落位到用户设置的 `voxcpm_model_cache_root`。应用启动时不自动安装或启动 VoxCPM；用户不点击设置页下载/导入运行时包或模型包时，不得下载模型、创建 venv、安装 Torch、启动服务或写入模型缓存。
+安装后的主应用还必须能从设置页优先下载并导入 ModelScope 上的 VoxCPM2 运行时包和模型包，因此 portable payload 中的 VoxCPM 文件只能包含轻量 service-only 文件：`install_local.ps1`、`server.py`、`engine.py`、`requirements.txt`、`README.md`。不得整目录打包 `tools/voxcpm_service/`，避免误带入 `__pycache__`、`.venv`、`runtime/python/`、模型权重、Torch/CUDA wheel、Hugging Face/ModelScope 下载缓存或其它机器相关产物。应用内应支持四条路径：`下载并导入运行时包`、`下载并导入模型包`、`导入运行时包`、`导入模型包`。运行时包的受支持布局为 `runtime/python/python.exe + runtime/service/... + runtime/start_service.ps1 + runtime/healthcheck.ps1`，即运行时包自带 self-contained portable Python，不依赖宿主机器预装 Python；应用导入与启动逻辑同时兼容旧版 `runtime/.venv/Scripts/python.exe` 布局，便于平滑升级。运行时导入时，运行时仍落位到用户设置的 `voxcpm_install_root`；模型包导入时，模型落位到用户设置的 `voxcpm_model_cache_root`。应用启动时不自动安装或启动 VoxCPM；用户不点击设置页下载/导入运行时包或模型包时，不得下载模型、创建 venv、安装 Torch、启动服务或写入模型缓存。
 
 ## 运行时验证
 

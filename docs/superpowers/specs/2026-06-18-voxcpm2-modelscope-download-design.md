@@ -7,7 +7,7 @@
 ## 已确认的产品决策
 
 1. **双源策略**：ModelScope 为主下载源，GitHub Release 只放主安装器和说明文件。Hugging Face 不作为国内主源。
-2. **运行时和模型分包**：运行时 zip 只含 ``.venv``、``service``、脚本；模型单独打包。导入时先下运行时再下模型，拼到一起。
+2. **运行时和模型分包**：运行时 zip 只含 ``python``、``service``、脚本；模型单独打包。运行时包内的 ``python/python.exe`` 必须是自包含 portable Python，不依赖宿主环境。导入时先下运行时再下模型，拼到一起。
 3. **单包 cu130 + 驱动检测**：只发布 ``cu130`` 一个运行时包，应用内检测 NVIDIA 驱动版本，不兼容时明确提示升级驱动或走兜底路径。
 4. **下载方式 C**：应用内提供下载按钮，自动从 ModelScope 下载；下载失败时提示用户手动下载再导入。
 
@@ -17,14 +17,14 @@
 
 不含模型，体积预计几百 MB。
 
-命名：``voxcpm2-runtime-win-x64-cu130-r1.zip``
+命名：``voxcpm2-runtime-win-x64-cu130-r2.zip``
 
 布局：
 
-```
+  ```
 manifest.json
 runtime/
-  .venv/
+  python/
   service/
   start_service.ps1
   healthcheck.ps1
@@ -36,7 +36,7 @@ runtime/
 
 只含 VoxCPM2 模型文件，体积约 5GB。
 
-命名：``voxcpm2-model-cu130-r1.zip``
+命名：``voxcpm2-model-cu130-r2.zip``
 
 布局：
 
@@ -70,9 +70,9 @@ models/
 在 ModelScope 建一个仓库（例如 ``borealis/oh-my-word-voxcpm2-runtime``），上传以下文件：
 
 - ``voxcpm2-runtime-win-x64-cu130-r1.zip``
-- ``voxcpm2-runtime-win-x64-cu130-r1.sha256``
-- ``voxcpm2-model-cu130-r1.zip``
-- ``voxcpm2-model-cu130-r1.sha256``
+- ``voxcpm2-runtime-win-x64-cu130-r2.zip.sha256``
+- ``voxcpm2-model-cu130-r2.zip``
+- ``voxcpm2-model-cu130-r2.zip.sha256``
 - ``README.md``（说明环境要求、下载方式、checksum 验证方法）
 
 ### 下载 URL
@@ -111,7 +111,7 @@ https://modelscope.cn/api/v1/models/{namespace}/{repo}/repo?Revision=master&File
 
 ### 阶段 2：下载运行时包
 
-- 从 ModelScope 下载 ``voxcpm2-runtime-win-x64-cu130-r1.zip`` 到临时目录
+- 从 ModelScope 下载 ``voxcpm2-runtime-win-x64-cu130-r2.zip`` 到临时目录
 - 下载过程中在 UI 显示进度（按已下载字节数 / Content-Length）
 - 下载完成后校验 SHA256 与配套 ``.sha256`` 文件比对
 - 校验失败则删除临时文件，提示重试或手动下载
@@ -130,7 +130,7 @@ https://modelscope.cn/api/v1/models/{namespace}/{repo}/repo?Revision=master&File
 
 运行时激活成功后，自动开始下载模型包：
 
-- 从 ModelScope 下载 ``voxcpm2-model-cu130-r1.zip``
+- 从 ModelScope 下载 ``voxcpm2-model-cu130-r2.zip``
 - 同样显示进度和 SHA256 校验
 - 校验失败则提示重试或手动下载
 

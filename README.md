@@ -2,7 +2,7 @@
 
 一个 Windows-first 的 `oh my word` Python 便携重写版，技术栈为 `Python + PySide6`。
 
-当前版本：`v0.1.15`。设置窗口的“关于”页会显示当前版本和更新日志。
+当前版本：`v0.1.16`。设置窗口的“关于”页会显示当前版本和更新日志。
 
 ## 范围
 
@@ -131,7 +131,7 @@ py -3.11 -m pytest tests -q
 .\build\build_installer.ps1
 ```
 
-该脚本会先构建 portable 版本，再生成带版本号的安装包，例如当前版本输出为 `dist/oh-my-word-setup-v0.1.15.exe`。安装包提供简单的 Windows 图形界面，允许用户选择安装目录，并可选择创建桌面/开始菜单快捷方式和安装完成后启动应用。
+该脚本会先构建 portable 版本，再生成带版本号的安装包，例如当前版本输出为 `dist/oh-my-word-setup-v0.1.16.exe`。安装包提供简单的 Windows 图形界面，允许用户选择安装目录，并可选择创建桌面/开始菜单快捷方式和安装完成后启动应用。
 
 安装器会用安装清单管理应用文件。用户选择已有目录时，安装器不会递归清空整个目录；卸载脚本只删除清单中的应用文件和相关快捷方式。
 
@@ -139,19 +139,21 @@ py -3.11 -m pytest tests -q
 
 主安装器不会把 VoxCPM2 的重型运行时直接打进 payload。预构建运行时包和模型包会单独发布，当前主源为 ModelScope；GitHub Release 继续只放主安装器和说明文件。
 
-安装完成后，可以在应用设置页的“发音”分类中优先使用 `下载并导入运行时包`，由应用按固定的 ModelScope 仓库顺序下载 `runtime zip + model zip` 并顺序导入。设置页同时提供 `下载并导入模型包`，用于运行时已就绪但模型目录缺失或需要重下模型时单独处理；也保留 `导入 VoxCPM 运行时包` 和 `导入模型包` 作为手动下载后的兜底路径。下载或导入期间任务会在后台线程执行，状态区会显示当前阶段，避免设置页长时间无响应。导入成功后状态区会显示 runtime ID、CUDA 标签、最低驱动要求和模型版本。设置页同时允许用户选择 VoxCPM 安装目录、模型目录、下载镜像开关，并提供检测、启动服务、停止服务和打开日志入口；点击这些按钮前会先应用当前窗口里已编辑的 VoxCPM 路径设置。`voxcpm_auto_start` 默认关闭；用户选择 `VoxCPM 本地服务` 并打开“使用时自动启动”后，应用会在朗读时启动已安装的本地服务。未安装时不会静默下载数 GB 模型，而是提示用户去设置页下载/导入运行时包。
+安装完成后，可以在应用设置页的“发音”分类中优先使用 `下载并导入运行时包`，由应用按固定的 ModelScope 仓库顺序下载 `runtime zip + model zip` 并顺序导入。当前默认资源名为 `voxcpm2-runtime-win-x64-cu130-r2.zip`、`voxcpm2-model-cu130-r2.zip`，配套 checksum 文件为 `*.zip.sha256`。运行时包现在内置 self-contained portable Python（导入后落位为 `tts\voxcpm\python\python.exe`），目标机器不需要预装 Python。设置页同时提供 `下载并导入模型包`，用于运行时已就绪但模型目录缺失或需要重下模型时单独处理；也保留 `导入 VoxCPM 运行时包` 和 `导入模型包` 作为手动下载后的兜底路径。下载或导入期间任务会在后台线程执行，状态区会显示当前阶段，避免设置页长时间无响应。导入成功后状态区会显示 runtime ID、CUDA 标签、最低驱动要求和模型版本。设置页同时允许用户选择 VoxCPM 安装目录、模型目录、下载镜像开关，并提供检测、启动服务、停止服务和打开日志入口；点击这些按钮前会先应用当前窗口里已编辑的 VoxCPM 路径设置。`voxcpm_auto_start` 默认关闭；用户选择 `VoxCPM 本地服务` 并打开“使用时自动启动”后，应用会在朗读时启动已安装的本地服务。未安装时不会静默下载数 GB 模型，而是提示用户去设置页下载/导入运行时包。
 
 ## VoxCPM 本地发音
 
 VoxCPM 不部署到云端服务器。桌面应用只通过 `127.0.0.1`/`localhost` 调用用户本机运行的 companion process：
 
 ```powershell
-.\.venv-voxcpm\Scripts\python.exe -m uvicorn tools.voxcpm_service.server:app --host 127.0.0.1 --port 8808
+.\tts\voxcpm\start_service.ps1
 ```
+
+导入后的运行时目录默认形态为 `tts\voxcpm\python\python.exe + tts\voxcpm\service\... + tts\voxcpm\models\VoxCPM2-local\...`；应用启动脚本会优先使用这个 portable Python，并继续兼容旧版 `.venv\Scripts\python.exe` 布局。
 
 VoxCPM、PyTorch、CUDA、模型权重和相关依赖不进入根 `requirements.txt`，也不打包进主 EXE 或 portable payload。相关说明见 `tools/voxcpm_service/README.md`。
 安装器路径会生成 `<软件安装目录>\tts\voxcpm\start_service.ps1`，用于以同一个模型缓存目录启动本地服务。设置页加载默认设置或旧版默认路径时，会按当前运行目录迁移为 `<软件运行目录>\tts\voxcpm` 和 `<软件运行目录>\tts\voxcpm\models`；用户手动选择的自定义目录不会被覆盖。
-主程序仍只携带轻量 service-only 文件（`install_local.ps1`、`server.py`、`engine.py`、`requirements.txt`、`README.md`），不携带已安装 `.venv`、模型权重、Torch/CUDA wheel 或 Hugging Face/ModelScope 缓存。普通用户路径只包括设置页中的运行时/模型下载与导入；不点击这些入口时，不会下载模型或启动 VoxCPM 服务。
+主程序仍只携带轻量 service-only 文件（`install_local.ps1`、`server.py`、`engine.py`、`requirements.txt`、`README.md`），不携带已导入的 portable Python 运行时、旧版 `.venv`、模型权重、Torch/CUDA wheel 或 Hugging Face/ModelScope 缓存。普通用户路径只包括设置页中的运行时/模型下载与导入；不点击这些入口时，不会下载模型或启动 VoxCPM 服务。
 
 ## VoxCPM2 运行时包环境要求
 
@@ -163,7 +165,7 @@ VoxCPM2 预构建运行时包不追求“任意 Windows 机器都能跑”，而
 - 推荐 `8 GB+ VRAM`
 - 推荐至少 `15 GB+` 可用磁盘空间
 
-普通用户首选在设置页点击 `下载并导入运行时包`，由应用从 ModelScope 下载与当前环境匹配的运行时包和模型包。若运行时已存在但模型目录缺失，也可以单独点击 `下载并导入模型包`。也可以手动下载后分别通过 `导入 VoxCPM 运行时包` 与 `导入模型包` 导入。导入成功后，运行时仍落在 `<软件目录>\tts\voxcpm`，并继续通过本地 `127.0.0.1` companion process 提供发音服务。
+普通用户首选在设置页点击 `下载并导入运行时包`，由应用从 ModelScope 下载与当前环境匹配的运行时包和模型包。若运行时已存在但模型目录缺失，也可以单独点击 `下载并导入模型包`。也可以手动下载后分别通过 `导入 VoxCPM 运行时包` 与 `导入模型包` 导入。导入成功后，运行时仍落在 `<软件目录>\tts\voxcpm`，并继续通过本地 `127.0.0.1` companion process 提供发音服务；当前预构建运行时包已自带 portable Python，不依赖宿主环境。
 
 如果你的机器不在这个支持矩阵内，或者手头没有匹配的 runtime zip，当前版本不再提供旧的脚本式后台安装入口；这类环境建议继续使用 `system_qt` 发音，或等待对应矩阵的预构建运行时包。
 

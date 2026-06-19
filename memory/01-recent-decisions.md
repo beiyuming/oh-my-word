@@ -71,8 +71,8 @@
 
 ### 11. 安装包和设置页使用版本化发布记录
 
-- 当前版本号来源为 `app/version.py`，当前值随发布递增；当前工作树版本为 `0.1.15`。
-- `build/build_installer.ps1` 默认输出带版本号的安装包，例如 `dist/oh-my-word-setup-v0.1.15.exe`。
+- 当前版本号来源为 `app/version.py`，当前值随发布递增；当前工作树版本为 `0.1.16`。
+- `build/build_installer.ps1` 默认输出带版本号的安装包，例如 `dist/oh-my-word-setup-v0.1.16.exe`。
 - 设置窗口必须包含“关于”页，显示当前版本和更新日志。
 - 后续每次重新打包发布都应先更新版本号和更新日志，再构建安装包。
 - 每次完成更新安装包打包后，还应以包含版本号的提交信息提交本次发布相关变更，推送到 GitHub，创建同版本 tag，并创建带安装包 asset 的 GitHub Release。
@@ -80,7 +80,7 @@
 
 ### 12. 当前工作树版本以 `app/version.py` 为单一事实源
 
-- 当前工作树版本值为 `0.1.15`。
+- 当前工作树版本值为 `0.1.16`。
 - 设置页关于页、安装器默认输出名和发布标签都必须从同一个版本源派生，不能在 UI、脚本或文档中手写另一份“当前版本”。
 
 ### 13. 弹窗自动朗读默认关闭，由 controller 持有定时器语义
@@ -103,3 +103,9 @@
 - 设置页里的 `下载并导入运行时包`、`下载并导入模型包`、`导入 VoxCPM 运行时包`、`导入模型包` 都必须立即返回 UI 线程。
 - ZIP 校验、残留目录清理、解压、运行时自检和 ModelScope 下载都放在后台线程执行。
 - 设置页状态区负责显示阶段性文案；操作进行中要禁用重复点击按钮，避免并发导入。
+
+### 16. 预构建 VoxCPM2 runtime 包必须自带 portable Python
+
+- 运行时包的受支持主布局已切换为 `runtime/python/python.exe + runtime/service/... + runtime/start_service.ps1 + runtime/healthcheck.ps1`，不能再依赖目标机器预装 Python。
+- 应用导入、检测、启动和 staging 自检逻辑同时兼容新 portable 布局与旧 `.venv` 布局，保证已下载旧包的用户仍可手动导入。
+- 默认下载入口已切到 `voxcpm2-runtime-win-x64-cu130-r2.zip`；模型包资产随同切到 `voxcpm2-model-cu130-r2.zip`。

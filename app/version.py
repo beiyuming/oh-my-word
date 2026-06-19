@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 
-APP_VERSION = "0.1.15"
+APP_VERSION = "0.1.16"
 
 
 @dataclass(slots=True, frozen=True)
@@ -14,6 +14,15 @@ class ChangelogEntry:
 
 
 CHANGELOG: tuple[ChangelogEntry, ...] = (
+    ChangelogEntry(
+        version="0.1.16",
+        date="2026-06-19",
+        changes=(
+            "VoxCPM2 预构建运行时包改为自包含 portable Python 布局，不再依赖目标机器预装 Python。",
+            "应用导入与启动逻辑已同时兼容新的 runtime\\python\\python.exe 布局和旧的 .venv 布局。",
+            "默认下载入口已切换到新的 voxcpm2-runtime-win-x64-cu130-r2.zip / voxcpm2-model-cu130-r2.zip 资产。",
+        ),
+    ),
     ChangelogEntry(
         version="0.1.15",
         date="2026-06-18",

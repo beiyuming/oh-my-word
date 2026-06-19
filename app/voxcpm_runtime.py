@@ -78,9 +78,13 @@ _REQUIRED_MODEL_MANIFEST_FIELDS = {
 }
 
 _REQUIRED_RUNTIME_FILES = (
-    "runtime/.venv/Scripts/python.exe",
     "runtime/start_service.ps1",
     "runtime/healthcheck.ps1",
+)
+
+_REQUIRED_RUNTIME_EXECUTABLE_PATHS = (
+    "runtime/python/python.exe",
+    "runtime/.venv/Scripts/python.exe",
 )
 
 _REQUIRED_RUNTIME_PREFIXES = (
@@ -265,6 +269,12 @@ def validate_runtime_zip_layout(
         for path in _REQUIRED_RUNTIME_FILES:
             if path not in names:
                 return VoxCpmRuntimeValidationResult(False, f"Runtime package is missing required file: {path}")
+
+        if not any(path in names for path in _REQUIRED_RUNTIME_EXECUTABLE_PATHS):
+            return VoxCpmRuntimeValidationResult(
+                False,
+                "Runtime package is missing required Python runtime executable.",
+            )
 
         for prefix in _REQUIRED_RUNTIME_PREFIXES:
             if not any(name.startswith(prefix) for name in names):

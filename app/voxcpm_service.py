@@ -841,7 +841,7 @@ class VoxCpmServiceManager(QObject):
         }
 
     def _run_runtime_healthcheck(self, runtime_root: Path) -> tuple[bool, str]:
-        python_path = runtime_root / ".venv" / "Scripts" / "python.exe"
+        python_path = self._runtime_python_executable(runtime_root)
         service_server_path = runtime_root / "service" / "server.py"
         if not python_path.exists():
             return False, f"运行时缺少 Python：{python_path}"
@@ -939,7 +939,18 @@ class VoxCpmServiceManager(QObject):
             raise ValueError(f"{asset_path.name} 校验失败。")
 
     def _python_executable(self) -> Path:
-        return self._install_root / ".venv" / "Scripts" / "python.exe"
+        return self._runtime_python_executable(self._install_root)
+
+    @staticmethod
+    def _runtime_python_executable(runtime_root: Path) -> Path:
+        candidates = (
+            runtime_root / "python" / "python.exe",
+            runtime_root / ".venv" / "Scripts" / "python.exe",
+        )
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return candidates[0]
 
     def _start_script(self) -> Path:
         return self._install_root / "start_service.ps1"
@@ -982,13 +993,15 @@ class VoxCpmServiceManager(QObject):
             [
                 '$ErrorActionPreference = "Stop"',
                 '$scriptRoot = Split-Path -Parent $PSCommandPath',
-                '$venvPython = Join-Path $scriptRoot ".venv\\Scripts\\python.exe"',
-                'if (-not (Test-Path -LiteralPath $venvPython)) { throw "VoxCPM runtime python not found: $venvPython" }',
+                '$portablePython = Join-Path $scriptRoot "python\\python.exe"',
+                '$legacyVenvPython = Join-Path $scriptRoot ".venv\\Scripts\\python.exe"',
+                '$runtimePython = if (Test-Path -LiteralPath $portablePython) { $portablePython } else { $legacyVenvPython }',
+                'if (-not (Test-Path -LiteralPath $runtimePython)) { throw "VoxCPM runtime python not found: $runtimePython" }',
                 f"$env:HF_HOME = '{model_cache_root}'",
                 f"$env:HF_HUB_CACHE = '{model_hub_cache_root}'",
                 f"$env:VOXCPM_MODEL_ID = '{local_model_root}'",
                 "Set-Location -LiteralPath $scriptRoot",
-                f'& $venvPython -m uvicorn service.server:app --host "{host}" --port {port}',
+                f'& $runtimePython -m uvicorn service.server:app --host "{host}" --port {port}',
                 "",
             ]
         )

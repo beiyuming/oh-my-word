@@ -366,7 +366,7 @@ def test_stable_docs_describe_voxcpm_provider_contract() -> None:
     assert "使用时自动启动" in readme
     assert "tts\\voxcpm\\models" in readme
     assert "service-only" in readme
-    assert "voxcpm2-runtime-win-x64-cu130-r1.zip" in packaging_spec
+    assert "voxcpm2-runtime-win-x64-cu130-r2.zip" in packaging_spec
     assert "runtime package" in packaging_spec or "运行时包" in packaging_spec
     assert "GitHub Release" in packaging_spec
     assert "下载并导入模型包" in packaging_spec
@@ -374,6 +374,7 @@ def test_stable_docs_describe_voxcpm_provider_contract() -> None:
     assert "install_local.ps1" in packaging_spec
     assert "server.py" in packaging_spec
     assert "engine.py" in packaging_spec
-    assert ".venv" in packaging_spec
+    assert "runtime/python/python.exe" in packaging_spec
+    assert "portable Python" in packaging_spec
     assert "不得整目录打包" in packaging_spec
     assert "应用内应支持四条路径" in packaging_spec
