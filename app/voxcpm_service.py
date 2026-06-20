@@ -11,7 +11,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, IO
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 from PySide6.QtCore import QObject, Signal
@@ -450,9 +450,10 @@ class VoxCpmServiceManager(QObject):
         repo_name: str,
         runtime_filename: str,
         min_driver_version: str,
-    ) -> None:
+    ) -> bool:
         """Synchronous body; safe to call from a background thread."""
         download_root = self._install_root.parent / f"{self._install_root.name}.downloads"
+        succeeded = False
         try:
             self.download_progress.emit(f"正在下载 {runtime_filename} ...")
             runtime_zip_path = self._download_modelscope_asset(
@@ -464,7 +465,7 @@ class VoxCpmServiceManager(QObject):
             runtime_manifest = load_runtime_manifest_from_zip(runtime_zip_path)
             self.download_progress.emit("正在导入运行时包...")
             if not self.import_runtime_package(runtime_zip_path):
-                return
+                return False
             if runtime_manifest.model_package_filename:
                 self.download_progress.emit(f"正在下载 {runtime_manifest.model_package_filename} ...")
                 model_zip_path = self._download_modelscope_asset(
@@ -475,22 +476,25 @@ class VoxCpmServiceManager(QObject):
                 )
                 self.download_progress.emit("正在导入模型包...")
                 if not self.import_model_package(model_zip_path):
-                    return
+                    return False
 
             self._message = f"已下载并导入 VoxCPM 运行时与模型：{runtime_manifest.runtime_id}"
+            succeeded = True
         except Exception as exc:
             self._message = f"下载 VoxCPM 运行时包失败：{exc}"
         finally:
             self._download_active = False
             self._emit_status()
+        return succeeded
 
     def _download_and_import_model_package_sync(
         self,
         namespace: str,
         repo_name: str,
         model_filename: str,
-    ) -> None:
+    ) -> bool:
         download_root = self._install_root.parent / f"{self._install_root.name}.downloads"
+        succeeded = False
         try:
             self.download_progress.emit(f"正在下载 {model_filename} ...")
             model_zip_path = self._download_modelscope_asset(
@@ -501,13 +505,15 @@ class VoxCpmServiceManager(QObject):
             )
             self.download_progress.emit("正在导入模型包...")
             if not self.import_model_package(model_zip_path):
-                return
+                return False
             self._message = f"已下载并导入 VoxCPM 模型包：{model_filename}"
+            succeeded = True
         except Exception as exc:
             self._message = f"下载 VoxCPM 模型包失败：{exc}"
         finally:
             self._download_active = False
             self._emit_status()
+        return succeeded
 
     def _download_and_import_runtime_bundle_blocking(
         self,
@@ -554,10 +560,9 @@ class VoxCpmServiceManager(QObject):
             return False
 
         self._download_active = True
-        self._download_and_import_runtime_bundle_sync(
+        return self._download_and_import_runtime_bundle_sync(
             namespace, repo_name, runtime_filename, min_driver_version
         )
-        return self._download_active is False and "下载" in self._message
 
     def _download_and_import_model_package_blocking(
         self,
@@ -585,12 +590,11 @@ class VoxCpmServiceManager(QObject):
             return False
 
         self._download_active = True
-        self._download_and_import_model_package_sync(
+        return self._download_and_import_model_package_sync(
             namespace,
             repo_name,
             runtime_manifest.model_package_filename,
         )
-        return self._download_active is False and "下载" in self._message
 
 
     def start_service(self) -> bool:
@@ -876,10 +880,8 @@ class VoxCpmServiceManager(QObject):
         return False, output or "VoxCPM 运行时自检失败。"
 
     def _build_modelscope_asset_url(self, *, namespace: str, repo_name: str, filename: str) -> str:
-        return (
-            f"https://modelscope.cn/api/v1/models/{namespace}/{repo_name}/repo"
-            f"?Revision=master&FilePath={filename}"
-        )
+        encoded_filename = quote(filename, safe="/")
+        return f"https://www.modelscope.cn/models/{namespace}/{repo_name}/resolve/master/{encoded_filename}"
 
     def _download_modelscope_asset(
         self,

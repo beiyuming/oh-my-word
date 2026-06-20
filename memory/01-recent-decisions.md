@@ -71,8 +71,8 @@
 
 ### 11. 安装包和设置页使用版本化发布记录
 
-- 当前版本号来源为 `app/version.py`，当前值随发布递增；当前工作树版本为 `0.1.17`。
-- `build/build_installer.ps1` 默认输出带版本号的安装包，例如 `dist/oh-my-word-setup-v0.1.17.exe`。
+- 当前版本号来源为 `app/version.py`，当前值随发布递增；当前工作树版本为 `0.1.18`。
+- `build/build_installer.ps1` 默认输出带版本号的安装包，例如 `dist/oh-my-word-setup-v0.1.18.exe`。
 - 设置窗口必须包含“关于”页，显示当前版本和更新日志。
 - 后续每次重新打包发布都应先更新版本号和更新日志，再构建安装包。
 - 每次完成更新安装包打包后，还应以包含版本号的提交信息提交本次发布相关变更，推送到 GitHub，创建同版本 tag，并创建带安装包 asset 的 GitHub Release。
@@ -80,7 +80,7 @@
 
 ### 12. 当前工作树版本以 `app/version.py` 为单一事实源
 
-- 当前工作树版本值为 `0.1.17`。
+- 当前工作树版本值为 `0.1.18`。
 - 设置页关于页、安装器默认输出名和发布标签都必须从同一个版本源派生，不能在 UI、脚本或文档中手写另一份“当前版本”。
 
 ### 13. 弹窗自动朗读默认关闭，由 controller 持有定时器语义
@@ -115,3 +115,9 @@
 - 2026-06-19 在真实 `r2` runtime/model 包的隔离导入测试中，`Path.rename()` 会在目录激活阶段稳定触发 `WinError 5 拒绝访问`，但对同一源目录改用 `shutil.move()` 可成功完成激活。
 - 因此 `app/voxcpm_service.py` 的运行时目录和模型目录激活统一采用：先 `rename`，遇到 `PermissionError` 时清理半成品目标目录，再回退到 `shutil.move()`。
 - 这个回退是针对 Windows 文件系统行为的兼容修复，不改变包格式、manifest 规则、健康检查方式或用户设置语义。
+
+### 18. ModelScope 资产下载必须统一使用 `resolve/master`，成功判定不能依赖消息文案
+
+- 当前 `borealis/oh-my-word-voxcpm2-runtime` 仓库的真实可下载地址形态为 `https://www.modelscope.cn/models/{namespace}/{repo}/resolve/master/{filename}`；旧的 `api/v1/.../repo?Revision=master&FilePath=...` 形态不再作为应用内默认下载地址。
+- `VoxCpmServiceManager` 的 runtime/model blocking 下载 helper 必须以同步函数的显式 `bool` 结果作为成功语义，不能再靠消息文本里是否含有“下载”判断，否则失败分支会被误判为成功。
+- 对应测试必须同时覆盖：URL 构造、runtime zip/runtime sha/model zip/model sha 成功请求序列，以及上述四个阶段的失败返回值。

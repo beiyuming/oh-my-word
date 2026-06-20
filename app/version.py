@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 
-APP_VERSION = "0.1.17"
+APP_VERSION = "0.1.18"
 
 
 @dataclass(slots=True, frozen=True)
@@ -14,6 +14,15 @@ class ChangelogEntry:
 
 
 CHANGELOG: tuple[ChangelogEntry, ...] = (
+    ChangelogEntry(
+        version="0.1.18",
+        date="2026-06-20",
+        changes=(
+            "修复应用内 ModelScope 下载地址仍指向旧 api/v1 形态，现已切换到真实可下载的 resolve/master 资产地址。",
+            "修复运行时包/模型包 blocking 下载 helper 用消息文本误判成功的问题，失败分支现在会准确返回 False。",
+            "补齐 ModelScope runtime/model 下载成功请求序列与 runtime zip、runtime sha、model zip、model sha 失败路径测试，并同步更新下载设计文档。",
+        ),
+    ),
     ChangelogEntry(
         version="0.1.17",
         date="2026-06-20",

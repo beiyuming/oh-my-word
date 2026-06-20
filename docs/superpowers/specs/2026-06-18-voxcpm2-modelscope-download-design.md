@@ -80,7 +80,7 @@ models/
 ModelScope 文件下载 URL 格式为：
 
 ```
-https://modelscope.cn/api/v1/models/{namespace}/{repo}/repo?Revision=master&FilePath={filename}
+https://www.modelscope.cn/models/{namespace}/{repo}/resolve/master/{filename}
 ```
 
 应用内默认值来自 ``app/models.py``，按 filename 拼接下载地址；设置页允许用户直接编辑 namespace、repo、runtime filename 和最低驱动版本，便于后续切换仓库或资产名，而不必改 UI 代码。

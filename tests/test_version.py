@@ -3,13 +3,18 @@
 from app.version import APP_VERSION, CHANGELOG, formatted_changelog
 
 
-def test_current_version_is_0_1_17() -> None:
-    assert APP_VERSION == "0.1.17"
+def test_current_version_is_0_1_18() -> None:
+    assert APP_VERSION == "0.1.18"
 
 
 def test_changelog_mentions_current_and_prior_updates() -> None:
     text = formatted_changelog()
 
+    assert "v0.1.18" in text
+    assert "resolve/master" in text
+    assert "api/v1" in text
+    assert "False" in text
+    assert "runtime zip、runtime sha、model zip、model sha" in text
     assert "v0.1.17" in text
     assert "WinError 5" in text
     assert "shutil.move" in text
@@ -61,4 +66,4 @@ def test_changelog_mentions_current_and_prior_updates() -> None:
     assert "安装包文件名带版本号" in text
     assert "VoxCPM" in text
     assert "流式" in text
-    assert CHANGELOG[0].version == "0.1.17"
+    assert CHANGELOG[0].version == "0.1.18"
