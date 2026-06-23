@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from PySide6.QtCore import QIODevice, QLocale, QObject, QUrl, Signal
+from PySide6.QtCore import QIODevice, QLocale, QObject, QTimer, QUrl, Signal
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 
 from .models import (
     DEFAULT_VOXCPM_ENDPOINT,
+    DEFAULT_VOXCPM_STREAM_PREBUFFER_MAX_WAIT_SECONDS,
     DEFAULT_VOXCPM_STREAM_PREBUFFER_SECONDS,
     DEFAULT_VOXCPM_TIMEOUT_SECONDS,
     TtsInitializationState,
@@ -29,6 +32,9 @@ try:
     from PySide6.QtTextToSpeech import QTextToSpeech
 except ImportError:  # pragma: no cover - depends on optional Qt module
     QTextToSpeech = None  # type: ignore[assignment]
+
+
+_LOGGER = logging.getLogger("oh_my_word.tts")
 
 
 class QtTextToSpeechProvider:
@@ -386,6 +392,7 @@ class VoxCpmPlaybackSession(QObject):
         audio_player: LocalWavPlayer,
         stream_player: StreamingPcmPlayer | None,
         stream_prebuffer_seconds: float,
+        stream_prebuffer_max_wait_seconds: float,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
@@ -398,6 +405,10 @@ class VoxCpmPlaybackSession(QObject):
         self._audio_player = audio_player
         self._stream_player = stream_player
         self._stream_prebuffer_seconds = min(max(float(stream_prebuffer_seconds), 0.0), 2.0)
+        self._stream_prebuffer_max_wait_seconds = min(
+            max(float(stream_prebuffer_max_wait_seconds), 0.1),
+            30.0,
+        )
         self._stream_reply: QNetworkReply | None = None
         self._wav_reply: QNetworkReply | None = None
         self._stopped = False
@@ -406,6 +417,14 @@ class VoxCpmPlaybackSession(QObject):
         self._stream_channels = 1
         self._stream_sample_format = "s16le"
         self._stream_prebuffer = bytearray()
+        self._stream_request_started_at = 0.0
+        self._stream_first_byte_at: float | None = None
+        self._stream_prebuffer_reached_at: float | None = None
+        self._stream_audio_bytes = 0
+        self._stream_prebuffer_deadline_reached = False
+        self._stream_prebuffer_timer = QTimer(self)
+        self._stream_prebuffer_timer.setSingleShot(True)
+        self._stream_prebuffer_timer.timeout.connect(self._on_stream_prebuffer_deadline)
 
     def start(self) -> bool:
         if self._stream_player is None:
@@ -416,6 +435,7 @@ class VoxCpmPlaybackSession(QObject):
 
     def stop(self) -> None:
         self._stopped = True
+        self._stream_prebuffer_timer.stop()
         self._abort_reply(self._stream_reply)
         self._stream_reply = None
         self._abort_reply(self._wav_reply)
@@ -426,6 +446,8 @@ class VoxCpmPlaybackSession(QObject):
 
     def _start_stream_request(self) -> None:
         request = self._json_request(f"{self._endpoint}/synthesize_stream")
+        self._stream_request_started_at = time.perf_counter()
+        self._stream_prebuffer_timer.start(int(self._stream_prebuffer_max_wait_seconds * 1000))
         self._stream_reply = self._network_manager.post(request, json.dumps(self._payload).encode("utf-8"))
         self._stream_reply.metaDataChanged.connect(self._on_stream_metadata_changed)
         self._stream_reply.readyRead.connect(self._on_stream_ready_read)
@@ -457,12 +479,13 @@ class VoxCpmPlaybackSession(QObject):
         data = bytes(self._stream_reply.readAll())
         if not data:
             return
+        self._record_stream_bytes(len(data))
         if self._stream_started:
             assert self._stream_player is not None
             self._stream_player.append_chunk(data)
             return
         self._stream_prebuffer.extend(data)
-        if len(self._stream_prebuffer) >= self._target_prebuffer_bytes():
+        if self._stream_prebuffer_deadline_reached or len(self._stream_prebuffer) >= self._target_prebuffer_bytes():
             self._start_stream_player()
 
     def _on_stream_finished(self) -> None:
@@ -478,6 +501,7 @@ class VoxCpmPlaybackSession(QObject):
         self._on_stream_metadata_changed()
         trailing = bytes(reply.readAll())
         if trailing:
+            self._record_stream_bytes(len(trailing))
             if self._stream_started and self._stream_player is not None:
                 self._stream_player.append_chunk(trailing)
             else:
@@ -488,10 +512,16 @@ class VoxCpmPlaybackSession(QObject):
         reply.deleteLater()
 
         if status_code in {404, 405}:
+            self._stream_prebuffer_timer.stop()
+            _LOGGER.warning(
+                "VoxCPM local service does not support /synthesize_stream (HTTP %s); falling back to full WAV /synthesize.",
+                status_code,
+            )
             self._start_wav_request()
             return
 
         if network_error != QNetworkReply.NetworkError.NoError:
+            self._stream_prebuffer_timer.stop()
             self._fail(f"VoxCPM local streaming request failed: {reply.errorString()}")
             return
 
@@ -504,7 +534,16 @@ class VoxCpmPlaybackSession(QObject):
 
         if self._stream_player is not None:
             self._stream_player.finish_stream()
+        self._stream_prebuffer_timer.stop()
+        self._log_stream_generation_finished()
         self._complete()
+
+    def _on_stream_prebuffer_deadline(self) -> None:
+        if self._stopped or self._stream_started:
+            return
+        self._stream_prebuffer_deadline_reached = True
+        if self._stream_prebuffer:
+            self._start_stream_player()
 
     def _start_stream_player(self) -> bool:
         if self._stream_started:
@@ -523,6 +562,15 @@ class VoxCpmPlaybackSession(QObject):
             self._stream_player.append_chunk(bytes(self._stream_prebuffer))
             self._stream_prebuffer.clear()
         self._stream_started = True
+        self._stream_prebuffer_reached_at = time.perf_counter()
+        _LOGGER.info(
+            "VoxCPM stream prebuffer reached in %.3fs; buffered_audio_seconds=%.3f target_audio_seconds=%.3f max_wait_seconds=%.3f deadline_reached=%s",
+            self._elapsed_since_request(self._stream_prebuffer_reached_at),
+            self._stream_audio_seconds(),
+            self._stream_prebuffer_seconds,
+            self._stream_prebuffer_max_wait_seconds,
+            self._stream_prebuffer_deadline_reached,
+        )
         self.playback_started.emit(self._request_tag)
         return True
 
@@ -571,6 +619,52 @@ class VoxCpmPlaybackSession(QObject):
     def _target_prebuffer_bytes(self) -> int:
         return int(self._stream_sample_rate * self._stream_channels * 2 * self._stream_prebuffer_seconds)
 
+    def _record_stream_bytes(self, byte_count: int) -> None:
+        if self._stream_first_byte_at is None:
+            self._stream_first_byte_at = time.perf_counter()
+            _LOGGER.info(
+                "VoxCPM stream first byte in %.3fs.",
+                self._elapsed_since_request(self._stream_first_byte_at),
+            )
+        self._stream_audio_bytes += byte_count
+
+    def _stream_audio_seconds(self) -> float:
+        bytes_per_second = self._stream_sample_rate * self._stream_channels * 2
+        if bytes_per_second <= 0:
+            return 0.0
+        return self._stream_audio_bytes / bytes_per_second
+
+    def _elapsed_since_request(self, timestamp: float | None) -> float:
+        if timestamp is None or self._stream_request_started_at <= 0:
+            return 0.0
+        return max(0.0, timestamp - self._stream_request_started_at)
+
+    def _log_stream_generation_finished(self) -> None:
+        finished_at = time.perf_counter()
+        elapsed = self._elapsed_since_request(finished_at)
+        audio_seconds = self._stream_audio_seconds()
+        generation_multiplier = audio_seconds / elapsed if elapsed > 0 else 0.0
+        log_message = (
+            "VoxCPM stream generation finished in %.3fs; first_byte_seconds=%.3f "
+            "prebuffer_seconds=%.3f buffered_audio_seconds=%.3f generated_audio_seconds=%.3f "
+            "average_generation_multiplier=%.2fx"
+        )
+        log_args = (
+            elapsed,
+            self._elapsed_since_request(self._stream_first_byte_at),
+            self._elapsed_since_request(self._stream_prebuffer_reached_at),
+            audio_seconds,
+            audio_seconds,
+            generation_multiplier,
+        )
+        if elapsed > 0 and generation_multiplier < 1.0:
+            _LOGGER.warning(
+                log_message + "; below real-time playback, consider lowering VoxCPM advanced parameters, using full WAV fallback, or increasing prebuffer.",
+                *log_args,
+            )
+            return
+        _LOGGER.info(log_message, *log_args)
+
     def _json_request(self, url: str) -> QNetworkRequest:
         request = QNetworkRequest(QUrl(url))
         request.setHeader(QNetworkRequest.KnownHeaders.ContentTypeHeader, "application/json")
@@ -587,6 +681,7 @@ class VoxCpmPlaybackSession(QObject):
             reply.deleteLater()
 
     def _fail(self, message: str) -> None:
+        self._stream_prebuffer_timer.stop()
         if self._stopped:
             self.finished.emit(self._request_tag)
             self.deleteLater()
@@ -613,6 +708,7 @@ class VoxCpmHttpProvider(QObject):
         audio_player: LocalWavPlayer | Any | None = None,
         stream_player: Any = None,
         stream_prebuffer_seconds: float = DEFAULT_VOXCPM_STREAM_PREBUFFER_SECONDS,
+        stream_prebuffer_max_wait_seconds: float = DEFAULT_VOXCPM_STREAM_PREBUFFER_MAX_WAIT_SECONDS,
         network_manager: QNetworkAccessManager | None = None,
         parent: QObject | None = None,
     ) -> None:
@@ -629,6 +725,7 @@ class VoxCpmHttpProvider(QObject):
         else:
             self._stream_player = stream_player
         self._stream_prebuffer_seconds = stream_prebuffer_seconds
+        self._stream_prebuffer_max_wait_seconds = stream_prebuffer_max_wait_seconds
         self._network_manager = network_manager or QNetworkAccessManager(self)
         self._last_error: str | None = None
         self._cache_counter = 0
@@ -684,6 +781,7 @@ class VoxCpmHttpProvider(QObject):
             audio_player=self._audio_player,
             stream_player=self._stream_player,
             stream_prebuffer_seconds=self._stream_prebuffer_seconds,
+            stream_prebuffer_max_wait_seconds=self._stream_prebuffer_max_wait_seconds,
             parent=self,
         )
         session.playback_started.connect(self._on_session_started)
@@ -739,6 +837,7 @@ class PronunciationService(QObject):
         timeout_seconds: int = DEFAULT_VOXCPM_TIMEOUT_SECONDS,
         cache_dir: Path | None = None,
         stream_prebuffer_seconds: float = DEFAULT_VOXCPM_STREAM_PREBUFFER_SECONDS,
+        stream_prebuffer_max_wait_seconds: float = DEFAULT_VOXCPM_STREAM_PREBUFFER_MAX_WAIT_SECONDS,
         on_error: Callable[[str], Any] | None = None,
     ) -> None:
         super().__init__(parent)
@@ -750,6 +849,7 @@ class PronunciationService(QObject):
             timeout_seconds=timeout_seconds,
             cache_dir=cache_dir,
             stream_prebuffer_seconds=stream_prebuffer_seconds,
+            stream_prebuffer_max_wait_seconds=stream_prebuffer_max_wait_seconds,
         )
         self._connect_backend_signals()
 
@@ -809,6 +909,7 @@ class PronunciationService(QObject):
         timeout_seconds: int,
         cache_dir: Path | None,
         stream_prebuffer_seconds: float,
+        stream_prebuffer_max_wait_seconds: float,
     ) -> QtTextToSpeechProvider | VoxCpmHttpProvider:
         if self._provider_name is TtsProvider.VOXCPM_LOCAL:
             return VoxCpmHttpProvider(
@@ -816,6 +917,7 @@ class PronunciationService(QObject):
                 timeout_seconds=timeout_seconds,
                 cache_dir=cache_dir or Path.cwd() / "storage" / "tts_cache",
                 stream_prebuffer_seconds=stream_prebuffer_seconds,
+                stream_prebuffer_max_wait_seconds=stream_prebuffer_max_wait_seconds,
                 parent=self,
             )
         return QtTextToSpeechProvider(self, accent=accent)

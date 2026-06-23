@@ -5,9 +5,9 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QScrollArea
 
-from app.models import AppSettings, PronunciationContentMode, TtsProvider
+from app.models import AppSettings, PronunciationContentMode, TtsProvider, VoxCpmDevice
 from app.settings_window import SettingsDialog
 from app.version import APP_VERSION
 
@@ -36,6 +36,16 @@ class SettingsDialogTtsTests(unittest.TestCase):
                 voxcpm_modelscope_runtime_filename="voxcpm2-runtime-win-x64-cu130-r2.zip",
                 voxcpm_modelscope_min_driver_version="581",
                 voxcpm_stream_prebuffer_seconds=0.65,
+                voxcpm_device=VoxCpmDevice.CUDA,
+                voxcpm_optimize=True,
+                voxcpm_cfg_value=2.25,
+                voxcpm_inference_timesteps=18,
+                voxcpm_retry_badcase=False,
+                voxcpm_retry_badcase_max_times=5,
+                voxcpm_retry_badcase_ratio_threshold=3.5,
+                voxcpm_leading_silence_seconds=0.2,
+                voxcpm_trailing_silence_seconds=0.45,
+                voxcpm_stream_prebuffer_max_wait_seconds=1.25,
             )
         )
         self.addCleanup(dialog.close)
@@ -58,6 +68,16 @@ class SettingsDialogTtsTests(unittest.TestCase):
         self.assertEqual(settings.voxcpm_modelscope_runtime_filename, "voxcpm2-runtime-win-x64-cu130-r2.zip")
         self.assertEqual(settings.voxcpm_modelscope_min_driver_version, "581")
         self.assertEqual(settings.voxcpm_stream_prebuffer_seconds, 0.65)
+        self.assertIs(settings.voxcpm_device, VoxCpmDevice.CUDA)
+        self.assertTrue(settings.voxcpm_optimize)
+        self.assertEqual(settings.voxcpm_cfg_value, 2.25)
+        self.assertEqual(settings.voxcpm_inference_timesteps, 18)
+        self.assertFalse(settings.voxcpm_retry_badcase)
+        self.assertEqual(settings.voxcpm_retry_badcase_max_times, 5)
+        self.assertEqual(settings.voxcpm_retry_badcase_ratio_threshold, 3.5)
+        self.assertEqual(settings.voxcpm_leading_silence_seconds, 0.2)
+        self.assertEqual(settings.voxcpm_trailing_silence_seconds, 0.45)
+        self.assertEqual(settings.voxcpm_stream_prebuffer_max_wait_seconds, 1.25)
 
     def test_settings_dialog_has_categorized_tabs(self) -> None:
         dialog = SettingsDialog(AppSettings())
@@ -75,6 +95,16 @@ class SettingsDialogTtsTests(unittest.TestCase):
 
         self.assertTrue(settings.auto_pronounce_on_popup)
         self.assertEqual(settings.auto_pronounce_delay_seconds, 0.75)
+
+    def test_settings_dialog_uses_scroll_area_and_collapsed_voxcpm_advanced_group(self) -> None:
+        dialog = SettingsDialog(AppSettings())
+        self.addCleanup(dialog.close)
+
+        self.assertIsInstance(dialog._pronunciation_scroll, QScrollArea)
+        self.assertTrue(dialog._voxcpm_advanced_group.isCheckable())
+        self.assertFalse(dialog._voxcpm_advanced_group.isChecked())
+        self.assertLessEqual(dialog.minimumWidth(), 360)
+        self.assertLessEqual(dialog.minimumHeight(), 320)
 
     def test_about_tab_shows_version_and_changelog(self) -> None:
         dialog = SettingsDialog(AppSettings())

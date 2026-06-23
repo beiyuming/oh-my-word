@@ -9,7 +9,13 @@ from unittest.mock import Mock, patch
 from PySide6.QtCore import QLocale, QObject, Signal
 
 from app.models import Accent, TtsInitializationState, TtsProvider
-from app.tts import PcmStreamBufferDevice, PronunciationService, StreamingPcmPlayer, VoxCpmHttpProvider
+from app.tts import (
+    PcmStreamBufferDevice,
+    PronunciationService,
+    StreamingPcmPlayer,
+    VoxCpmHttpProvider,
+    VoxCpmPlaybackSession,
+)
 
 
 class VoxCpmHttpProviderTests(unittest.TestCase):
@@ -46,6 +52,7 @@ class VoxCpmHttpProviderTests(unittest.TestCase):
                 stream_player=stream_player,
                 network_manager=network_manager,
                 stream_prebuffer_seconds=0.6,
+                stream_prebuffer_max_wait_seconds=1.4,
             )
 
             result = provider.speak("focus", accent=Accent.US, request_tag=("req-1", "focus"))
@@ -55,6 +62,7 @@ class VoxCpmHttpProviderTests(unittest.TestCase):
         self.assertEqual(captured["timeout_seconds"], 5)
         self.assertEqual(captured["request_tag"], ("req-1", "focus"))
         self.assertEqual(captured["stream_prebuffer_seconds"], 0.6)
+        self.assertEqual(captured["stream_prebuffer_max_wait_seconds"], 1.4)
         self.assertEqual(captured["payload"], {"text": "focus", "accent": "us", "format": "wav"})
         self.assertIs(captured["audio_player"], wav_player)
         self.assertIs(captured["stream_player"], stream_player)
@@ -222,6 +230,68 @@ class StreamingPcmPlayerTests(unittest.TestCase):
 
         self.assertEqual(service.provider, TtsProvider.VOXCPM_LOCAL)
         self.assertEqual(created, [0.8])
+
+
+class VoxCpmPlaybackSessionTests(unittest.TestCase):
+    def test_prebuffer_max_wait_deadline_starts_stream_when_pcm_is_available(self) -> None:
+        class FakeStreamPlayer:
+            last_error = None
+
+            def __init__(self) -> None:
+                self.started = False
+                self.appended: list[bytes] = []
+
+            def start_stream(self, **_kwargs: object) -> bool:
+                self.started = True
+                return True
+
+            def append_chunk(self, chunk: bytes) -> None:
+                self.appended.append(chunk)
+
+            def stop(self) -> None:
+                return None
+
+        player = FakeStreamPlayer()
+        session = VoxCpmPlaybackSession(
+            network_manager=Mock(),
+            endpoint="http://127.0.0.1:8808",
+            payload={"text": "focus", "accent": "us", "format": "wav"},
+            timeout_seconds=5,
+            request_tag=("req-1", "focus"),
+            next_audio_path=lambda: Path("unused.wav"),
+            audio_player=Mock(),
+            stream_player=player,
+            stream_prebuffer_seconds=2.0,
+            stream_prebuffer_max_wait_seconds=0.25,
+        )
+        started: list[object] = []
+        session.playback_started.connect(lambda tag: started.append(tag))
+        session._stream_prebuffer.extend(b"pcm")
+
+        session._on_stream_prebuffer_deadline()
+
+        self.assertTrue(player.started)
+        self.assertEqual(player.appended, [b"pcm"])
+        self.assertEqual(started, [("req-1", "focus")])
+
+    def test_prebuffer_max_wait_deadline_waits_when_no_pcm_is_available(self) -> None:
+        player = Mock()
+        session = VoxCpmPlaybackSession(
+            network_manager=Mock(),
+            endpoint="http://127.0.0.1:8808",
+            payload={"text": "focus", "accent": "us", "format": "wav"},
+            timeout_seconds=5,
+            request_tag=None,
+            next_audio_path=lambda: Path("unused.wav"),
+            audio_player=Mock(),
+            stream_player=player,
+            stream_prebuffer_seconds=2.0,
+            stream_prebuffer_max_wait_seconds=0.25,
+        )
+
+        session._on_stream_prebuffer_deadline()
+
+        player.start_stream.assert_not_called()
 
     def test_rejects_non_local_endpoint_without_http_request(self) -> None:
         player = Mock()

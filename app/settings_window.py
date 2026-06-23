@@ -4,6 +4,7 @@ from typing import Any
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -11,19 +12,22 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
     QPlainTextEdit,
+    QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from .models import Accent, AppSettings, DisplayMode, OverlayPosition, PronunciationContentMode, TtsProvider
+from .models import Accent, AppSettings, DisplayMode, OverlayPosition, PronunciationContentMode, TtsProvider, VoxCpmDevice
 from .version import APP_VERSION, formatted_changelog
 
 
@@ -42,6 +46,9 @@ _ENUM_LABELS = {
     PronunciationContentMode.WORD_AND_EXAMPLE: "单词 + 例句",
     TtsProvider.SYSTEM_QT: "系统离线发音",
     TtsProvider.VOXCPM_LOCAL: "VoxCPM 本地服务",
+    VoxCpmDevice.AUTO: "自动",
+    VoxCpmDevice.CUDA: "CUDA",
+    VoxCpmDevice.CPU: "CPU",
 }
 
 
@@ -162,18 +169,29 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("oh my word 设置")
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setModal(False)
-        self.resize(680, 620)
+        self.setMinimumSize(320, 280)
 
         self._tabs = QTabWidget(self)
+        self._pronunciation_scroll = QScrollArea(self)
         self._display_mode = QComboBox(self)
         self._card_position = QComboBox(self)
         self._barrage_position = QComboBox(self)
         self._accent = QComboBox(self)
         self._pronunciation_content_mode = QComboBox(self)
         self._tts_provider = QComboBox(self)
+        self._voxcpm_device = QComboBox(self)
         self._voxcpm_endpoint = QLineEdit(self)
         self._voxcpm_timeout = QSpinBox(self)
         self._voxcpm_stream_prebuffer = QDoubleSpinBox(self)
+        self._voxcpm_stream_prebuffer_max_wait = QDoubleSpinBox(self)
+        self._voxcpm_optimize = QCheckBox(self)
+        self._voxcpm_cfg_value = QDoubleSpinBox(self)
+        self._voxcpm_inference_timesteps = QSpinBox(self)
+        self._voxcpm_retry_badcase = QCheckBox(self)
+        self._voxcpm_retry_badcase_max_times = QSpinBox(self)
+        self._voxcpm_retry_badcase_ratio_threshold = QDoubleSpinBox(self)
+        self._voxcpm_leading_silence_seconds = QDoubleSpinBox(self)
+        self._voxcpm_trailing_silence_seconds = QDoubleSpinBox(self)
         self._voxcpm_install_root = QLineEdit(self)
         self._voxcpm_model_cache_root = QLineEdit(self)
         self._voxcpm_use_model_mirror = QCheckBox(self)
@@ -197,6 +215,8 @@ class SettingsDialog(QDialog):
         self._voxcpm_open_log_button = QPushButton("打开日志", self)
         self._voxcpm_install_browse_button = QPushButton("选择", self)
         self._voxcpm_model_browse_button = QPushButton("选择", self)
+        self._voxcpm_advanced_group = QGroupBox("VoxCPM 高级参数", self)
+        self._voxcpm_advanced_content = QWidget(self._voxcpm_advanced_group)
         self._enabled = QCheckBox(self)
         self._mute = QCheckBox(self)
         self._auto_pronounce_on_popup = QCheckBox(self)
@@ -239,6 +259,9 @@ class SettingsDialog(QDialog):
         self._auto_pronounce_on_popup.toggled.connect(lambda _: self._refresh_toggle_labels())
         self._voxcpm_use_model_mirror.toggled.connect(lambda _: self._refresh_toggle_labels())
         self._voxcpm_auto_start.toggled.connect(lambda _: self._refresh_toggle_labels())
+        self._voxcpm_optimize.toggled.connect(lambda _: self._refresh_toggle_labels())
+        self._voxcpm_retry_badcase.toggled.connect(lambda _: self._refresh_toggle_labels())
+        self._voxcpm_advanced_group.toggled.connect(self._voxcpm_advanced_content.setVisible)
         self._import_wordbook_button.clicked.connect(self.import_wordbook_requested.emit)
         self._download_wordbook_button.clicked.connect(self.download_wordbook_requested.emit)
         self._voxcpm_runtime_button.clicked.connect(self.voxcpm_runtime_import_requested.emit)
@@ -267,9 +290,19 @@ class SettingsDialog(QDialog):
         self._set_enum_value(self._accent, settings.accent)
         self._set_enum_value(self._pronunciation_content_mode, settings.pronunciation_content_mode)
         self._set_enum_value(self._tts_provider, settings.tts_provider)
+        self._set_enum_value(self._voxcpm_device, settings.voxcpm_device)
         self._voxcpm_endpoint.setText(settings.voxcpm_endpoint)
         self._voxcpm_timeout.setValue(settings.voxcpm_timeout_seconds)
         self._voxcpm_stream_prebuffer.setValue(settings.voxcpm_stream_prebuffer_seconds)
+        self._voxcpm_stream_prebuffer_max_wait.setValue(settings.voxcpm_stream_prebuffer_max_wait_seconds)
+        self._voxcpm_optimize.setChecked(settings.voxcpm_optimize)
+        self._voxcpm_cfg_value.setValue(settings.voxcpm_cfg_value)
+        self._voxcpm_inference_timesteps.setValue(settings.voxcpm_inference_timesteps)
+        self._voxcpm_retry_badcase.setChecked(settings.voxcpm_retry_badcase)
+        self._voxcpm_retry_badcase_max_times.setValue(settings.voxcpm_retry_badcase_max_times)
+        self._voxcpm_retry_badcase_ratio_threshold.setValue(settings.voxcpm_retry_badcase_ratio_threshold)
+        self._voxcpm_leading_silence_seconds.setValue(settings.voxcpm_leading_silence_seconds)
+        self._voxcpm_trailing_silence_seconds.setValue(settings.voxcpm_trailing_silence_seconds)
         self._voxcpm_install_root.setText(settings.voxcpm_install_root)
         self._voxcpm_model_cache_root.setText(settings.voxcpm_model_cache_root)
         self._voxcpm_use_model_mirror.setChecked(settings.voxcpm_use_model_mirror)
@@ -322,9 +355,19 @@ class SettingsDialog(QDialog):
             ),
             accent=self._current_enum_value(self._accent, Accent, AppSettings().accent),
             tts_provider=self._current_enum_value(self._tts_provider, TtsProvider, AppSettings().tts_provider),
+            voxcpm_device=self._current_enum_value(self._voxcpm_device, VoxCpmDevice, AppSettings().voxcpm_device),
             voxcpm_endpoint=self._voxcpm_endpoint.text().strip() or AppSettings().voxcpm_endpoint,
             voxcpm_timeout_seconds=self._voxcpm_timeout.value(),
             voxcpm_stream_prebuffer_seconds=self._voxcpm_stream_prebuffer.value(),
+            voxcpm_stream_prebuffer_max_wait_seconds=self._voxcpm_stream_prebuffer_max_wait.value(),
+            voxcpm_optimize=self._voxcpm_optimize.isChecked(),
+            voxcpm_cfg_value=self._voxcpm_cfg_value.value(),
+            voxcpm_inference_timesteps=self._voxcpm_inference_timesteps.value(),
+            voxcpm_retry_badcase=self._voxcpm_retry_badcase.isChecked(),
+            voxcpm_retry_badcase_max_times=self._voxcpm_retry_badcase_max_times.value(),
+            voxcpm_retry_badcase_ratio_threshold=self._voxcpm_retry_badcase_ratio_threshold.value(),
+            voxcpm_leading_silence_seconds=self._voxcpm_leading_silence_seconds.value(),
+            voxcpm_trailing_silence_seconds=self._voxcpm_trailing_silence_seconds.value(),
             voxcpm_install_root=self._voxcpm_install_root.text().strip() or AppSettings().voxcpm_install_root,
             voxcpm_model_cache_root=self._voxcpm_model_cache_root.text().strip()
             or AppSettings().voxcpm_model_cache_root,
@@ -372,6 +415,8 @@ class SettingsDialog(QDialog):
             self._pronunciation_content_mode.addItem(_ENUM_LABELS.get(member, member.value), member)
         for member in TtsProvider:
             self._tts_provider.addItem(_ENUM_LABELS.get(member, member.value), member)
+        for member in VoxCpmDevice:
+            self._voxcpm_device.addItem(_ENUM_LABELS.get(member, member.value), member)
 
         for spin in (self._min_delay, self._max_delay):
             spin.setRange(1, 240)
@@ -401,14 +446,51 @@ class SettingsDialog(QDialog):
         self._voxcpm_stream_prebuffer.setDecimals(2)
         self._voxcpm_stream_prebuffer.setSingleStep(0.05)
         self._voxcpm_stream_prebuffer.setSuffix(" 秒")
+        self._voxcpm_stream_prebuffer.setToolTip(
+            "按音频时长预缓冲；慢 GPU 可适当增大，但会增加首响等待。"
+        )
+        self._voxcpm_stream_prebuffer_max_wait.setRange(0.1, 30.0)
+        self._voxcpm_stream_prebuffer_max_wait.setDecimals(2)
+        self._voxcpm_stream_prebuffer_max_wait.setSingleStep(0.1)
+        self._voxcpm_stream_prebuffer_max_wait.setSuffix(" 秒")
+        self._voxcpm_stream_prebuffer_max_wait.setToolTip(
+            "达到该墙钟上限后，只要已有有效 PCM 就先开播，避免慢 GPU 长时间等满目标预缓冲。"
+        )
+        self._voxcpm_cfg_value.setRange(0.1, 10.0)
+        self._voxcpm_cfg_value.setDecimals(2)
+        self._voxcpm_cfg_value.setSingleStep(0.1)
+        self._voxcpm_inference_timesteps.setRange(1, 100)
+        self._voxcpm_retry_badcase_max_times.setRange(0, 10)
+        self._voxcpm_retry_badcase_ratio_threshold.setRange(0.1, 20.0)
+        self._voxcpm_retry_badcase_ratio_threshold.setDecimals(2)
+        self._voxcpm_retry_badcase_ratio_threshold.setSingleStep(0.1)
+        for silence_spin in (self._voxcpm_leading_silence_seconds, self._voxcpm_trailing_silence_seconds):
+            silence_spin.setRange(0.0, 2.0)
+            silence_spin.setDecimals(2)
+            silence_spin.setSingleStep(0.05)
+            silence_spin.setSuffix(" 秒")
+        for line_edit in (
+            self._voxcpm_endpoint,
+            self._voxcpm_install_root,
+            self._voxcpm_model_cache_root,
+            self._voxcpm_voice_prompt,
+            self._voxcpm_modelscope_namespace,
+            self._voxcpm_modelscope_repository,
+            self._voxcpm_modelscope_runtime_filename,
+            self._voxcpm_modelscope_min_driver_version,
+        ):
+            line_edit.setMinimumWidth(80)
+            line_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            line_edit.setClearButtonEnabled(True)
 
         self._voxcpm_message.setWordWrap(True)
         self._voxcpm_runtime_meta.setWordWrap(True)
-        self._tabs.addTab(self._build_learning_tab(), "学习")
-        self._tabs.addTab(self._build_display_tab(), "显示")
-        self._tabs.addTab(self._build_pronunciation_tab(), "发音")
-        self._tabs.addTab(self._build_hotkeys_tab(), "快捷键")
-        self._tabs.addTab(self._build_wordbooks_tab(), "词库")
+        self._tabs.addTab(self._scrollable_tab(self._build_learning_tab()), "学习")
+        self._tabs.addTab(self._scrollable_tab(self._build_display_tab()), "显示")
+        self._pronunciation_scroll = self._scrollable_tab(self._build_pronunciation_tab())
+        self._tabs.addTab(self._pronunciation_scroll, "发音")
+        self._tabs.addTab(self._scrollable_tab(self._build_hotkeys_tab()), "快捷键")
+        self._tabs.addTab(self._scrollable_tab(self._build_wordbooks_tab()), "词库")
         self._tabs.addTab(self._build_about_tab(), "关于")
         root.addWidget(self._tabs, 1)
 
@@ -416,6 +498,7 @@ class SettingsDialog(QDialog):
         buttons_row.addStretch(1)
         buttons_row.addWidget(self._buttons)
         root.addLayout(buttons_row)
+        self._resize_to_available_screen()
 
     def _build_learning_tab(self) -> QWidget:
         widget = QWidget(self)
@@ -469,6 +552,7 @@ class SettingsDialog(QDialog):
         settings_form.addRow("端点地址", self._voxcpm_endpoint)
         settings_form.addRow("请求超时", self._voxcpm_timeout)
         settings_form.addRow("流式预缓冲", self._voxcpm_stream_prebuffer)
+        settings_form.addRow("预缓冲最大等待", self._voxcpm_stream_prebuffer_max_wait)
         settings_form.addRow("安装目录", self._path_row(self._voxcpm_install_root, self._voxcpm_install_browse_button))
         settings_form.addRow(
             "模型目录",
@@ -483,22 +567,39 @@ class SettingsDialog(QDialog):
         settings_form.addRow("最低驱动版本", self._voxcpm_modelscope_min_driver_version)
         service_layout.addLayout(settings_form)
 
-        action_row1 = QHBoxLayout()
-        action_row1.addWidget(self._voxcpm_runtime_download_button)
-        action_row1.addWidget(self._voxcpm_model_download_button)
-        action_row1.addWidget(self._voxcpm_runtime_button)
-        action_row1.addWidget(self._voxcpm_model_button)
-        action_row1.addStretch(1)
-        service_layout.addLayout(action_row1)
-
-        action_row2 = QHBoxLayout()
-        action_row2.addWidget(self._voxcpm_start_button)
-        action_row2.addWidget(self._voxcpm_stop_button)
-        action_row2.addWidget(self._voxcpm_check_button)
-        action_row2.addWidget(self._voxcpm_open_log_button)
-        action_row2.addStretch(1)
-        service_layout.addLayout(action_row2)
+        service_layout.addLayout(
+            self._button_grid(
+                [
+                    self._voxcpm_runtime_download_button,
+                    self._voxcpm_model_download_button,
+                    self._voxcpm_runtime_button,
+                    self._voxcpm_model_button,
+                    self._voxcpm_start_button,
+                    self._voxcpm_stop_button,
+                    self._voxcpm_check_button,
+                    self._voxcpm_open_log_button,
+                ]
+            )
+        )
         layout.addWidget(service_group)
+
+        self._voxcpm_advanced_group.setCheckable(True)
+        self._voxcpm_advanced_group.setChecked(False)
+        advanced_layout = QVBoxLayout(self._voxcpm_advanced_group)
+        advanced_layout.setContentsMargins(12, 12, 12, 12)
+        advanced_form = self._new_form(self._voxcpm_advanced_content)
+        advanced_form.addRow("计算设备", self._voxcpm_device)
+        advanced_form.addRow(self._voxcpm_optimize)
+        advanced_form.addRow("CFG value", self._voxcpm_cfg_value)
+        advanced_form.addRow("inference_timesteps", self._voxcpm_inference_timesteps)
+        advanced_form.addRow(self._voxcpm_retry_badcase)
+        advanced_form.addRow("retry_badcase_max_times", self._voxcpm_retry_badcase_max_times)
+        advanced_form.addRow("retry_badcase_ratio_threshold", self._voxcpm_retry_badcase_ratio_threshold)
+        advanced_form.addRow("leading_silence_seconds", self._voxcpm_leading_silence_seconds)
+        advanced_form.addRow("trailing_silence_seconds", self._voxcpm_trailing_silence_seconds)
+        advanced_layout.addWidget(self._voxcpm_advanced_content)
+        self._voxcpm_advanced_content.setVisible(False)
+        layout.addWidget(self._voxcpm_advanced_group)
         layout.addStretch(1)
         return widget
 
@@ -540,6 +641,7 @@ class SettingsDialog(QDialog):
         form = QFormLayout(parent)
         form.setContentsMargins(0, 12, 0, 0)
         form.setSpacing(10)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         return form
 
     @staticmethod
@@ -551,6 +653,39 @@ class SettingsDialog(QDialog):
         layout.addWidget(line_edit, 1)
         layout.addWidget(button)
         return widget
+
+    @staticmethod
+    def _button_grid(buttons: list[QPushButton]) -> QGridLayout:
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(8)
+        for index, button in enumerate(buttons):
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            grid.addWidget(button, index // 2, index % 2)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        return grid
+
+    @staticmethod
+    def _scrollable_tab(content: QWidget) -> QScrollArea:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setWidget(content)
+        return scroll
+
+    def _resize_to_available_screen(self) -> None:
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is None:
+            self.resize(680, 620)
+            return
+        available = screen.availableGeometry()
+        width = min(680, max(320, available.width() - 80))
+        height = min(620, max(280, available.height() - 80))
+        self.resize(width, height)
 
     def set_voxcpm_download_progress(self, stage: str) -> None:
         self._voxcpm_message.setText(stage)
@@ -650,4 +785,14 @@ class SettingsDialog(QDialog):
             "VoxCPM：使用时自动启动本地服务"
             if self._voxcpm_auto_start.isChecked()
             else "VoxCPM：不自动启动服务"
+        )
+        self._voxcpm_optimize.setText(
+            "VOXCPM_OPTIMIZE：启用（失败时服务端回退）"
+            if self._voxcpm_optimize.isChecked()
+            else "VOXCPM_OPTIMIZE：关闭（兼容优先）"
+        )
+        self._voxcpm_retry_badcase.setText(
+            "retry_badcase：启用异常短音频重试"
+            if self._voxcpm_retry_badcase.isChecked()
+            else "retry_badcase：关闭异常短音频重试"
         )

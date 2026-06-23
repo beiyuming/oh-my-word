@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 
-APP_VERSION = "0.1.18"
+APP_VERSION = "0.1.19"
 
 
 @dataclass(slots=True, frozen=True)
@@ -14,6 +14,15 @@ class ChangelogEntry:
 
 
 CHANGELOG: tuple[ChangelogEntry, ...] = (
+    ChangelogEntry(
+        version="0.1.19",
+        date="2026-06-23",
+        changes=(
+            "设置页发音分类新增默认折叠的 VoxCPM 高级参数区域，可持久化设备、optimize、CFG、推理步数、badcase 重试和首尾静音参数。",
+            "VoxCPM 流式播放新增预缓冲最大等待时间和首字节、预缓冲、生成倍率等诊断日志，旧 service 404/405 时会明确记录并回退完整 WAV。",
+            "设置窗口改为小屏幕友好的滚动布局，限制初始尺寸并允许缩小，避免长路径、说明和按钮组撑破窗口。",
+        ),
+    ),
     ChangelogEntry(
         version="0.1.18",
         date="2026-06-20",

@@ -28,11 +28,21 @@ from .models import (
     DEFAULT_SNOOZE_MINUTES,
     DEFAULT_TOGGLE_DETAIL_HOTKEY,
     DEFAULT_TRIGGER_NOW_HOTKEY,
+    DEFAULT_VOXCPM_CFG_VALUE,
+    DEFAULT_VOXCPM_DEVICE,
     DEFAULT_VOXCPM_ENDPOINT,
+    DEFAULT_VOXCPM_INFERENCE_TIMESTEPS,
     DEFAULT_VOXCPM_INSTALL_ROOT,
+    DEFAULT_VOXCPM_LEADING_SILENCE_SECONDS,
     DEFAULT_VOXCPM_MODEL_CACHE_ROOT,
+    DEFAULT_VOXCPM_OPTIMIZE,
+    DEFAULT_VOXCPM_RETRY_BADCASE,
+    DEFAULT_VOXCPM_RETRY_BADCASE_MAX_TIMES,
+    DEFAULT_VOXCPM_RETRY_BADCASE_RATIO_THRESHOLD,
+    DEFAULT_VOXCPM_STREAM_PREBUFFER_MAX_WAIT_SECONDS,
     DEFAULT_VOXCPM_STREAM_PREBUFFER_SECONDS,
     DEFAULT_VOXCPM_TIMEOUT_SECONDS,
+    DEFAULT_VOXCPM_TRAILING_SILENCE_SECONDS,
     DEFAULT_VOXCPM_VOICE_PROMPT,
     DEFAULT_VOXCPM_MODELSCOPE_NAMESPACE,
     DEFAULT_VOXCPM_MODELSCOPE_REPOSITORY,
@@ -43,6 +53,7 @@ from .models import (
     OverlayPosition,
     PronunciationContentMode,
     TtsProvider,
+    VoxCpmDevice,
     WordProgress,
 )
 
@@ -233,6 +244,58 @@ def normalize_settings(payload: Any) -> AppSettings:
             data.get("voxcpm_stream_prebuffer_seconds"),
             DEFAULT_VOXCPM_STREAM_PREBUFFER_SECONDS,
         ),
+        voxcpm_stream_prebuffer_max_wait_seconds=_normalize_bounded_float(
+            data.get("voxcpm_stream_prebuffer_max_wait_seconds"),
+            DEFAULT_VOXCPM_STREAM_PREBUFFER_MAX_WAIT_SECONDS,
+            min_value=0.1,
+            max_value=30.0,
+        ),
+        voxcpm_device=_normalize_enum(
+            data.get("voxcpm_device"),
+            VoxCpmDevice,
+            DEFAULT_VOXCPM_DEVICE,
+        ),
+        voxcpm_optimize=_normalize_bool(data.get("voxcpm_optimize"), DEFAULT_VOXCPM_OPTIMIZE),
+        voxcpm_cfg_value=_normalize_bounded_float(
+            data.get("voxcpm_cfg_value"),
+            DEFAULT_VOXCPM_CFG_VALUE,
+            min_value=0.1,
+            max_value=10.0,
+        ),
+        voxcpm_inference_timesteps=_normalize_bounded_int(
+            data.get("voxcpm_inference_timesteps"),
+            DEFAULT_VOXCPM_INFERENCE_TIMESTEPS,
+            min_value=1,
+            max_value=100,
+        ),
+        voxcpm_retry_badcase=_normalize_bool(
+            data.get("voxcpm_retry_badcase"),
+            DEFAULT_VOXCPM_RETRY_BADCASE,
+        ),
+        voxcpm_retry_badcase_max_times=_normalize_bounded_int(
+            data.get("voxcpm_retry_badcase_max_times"),
+            DEFAULT_VOXCPM_RETRY_BADCASE_MAX_TIMES,
+            min_value=0,
+            max_value=10,
+        ),
+        voxcpm_retry_badcase_ratio_threshold=_normalize_bounded_float(
+            data.get("voxcpm_retry_badcase_ratio_threshold"),
+            DEFAULT_VOXCPM_RETRY_BADCASE_RATIO_THRESHOLD,
+            min_value=0.1,
+            max_value=20.0,
+        ),
+        voxcpm_leading_silence_seconds=_normalize_bounded_float(
+            data.get("voxcpm_leading_silence_seconds"),
+            DEFAULT_VOXCPM_LEADING_SILENCE_SECONDS,
+            min_value=0.0,
+            max_value=2.0,
+        ),
+        voxcpm_trailing_silence_seconds=_normalize_bounded_float(
+            data.get("voxcpm_trailing_silence_seconds"),
+            DEFAULT_VOXCPM_TRAILING_SILENCE_SECONDS,
+            min_value=0.0,
+            max_value=2.0,
+        ),
         pronounce_hotkey=_normalize_hotkey(
             data.get("pronounce_hotkey"),
             DEFAULT_PRONOUNCE_HOTKEY,
@@ -329,6 +392,16 @@ def settings_to_dict(settings: AppSettings) -> dict[str, Any]:
         "voxcpm_modelscope_runtime_filename": settings.voxcpm_modelscope_runtime_filename,
         "voxcpm_modelscope_min_driver_version": settings.voxcpm_modelscope_min_driver_version,
         "voxcpm_stream_prebuffer_seconds": settings.voxcpm_stream_prebuffer_seconds,
+        "voxcpm_stream_prebuffer_max_wait_seconds": settings.voxcpm_stream_prebuffer_max_wait_seconds,
+        "voxcpm_device": settings.voxcpm_device.value,
+        "voxcpm_optimize": settings.voxcpm_optimize,
+        "voxcpm_cfg_value": settings.voxcpm_cfg_value,
+        "voxcpm_inference_timesteps": settings.voxcpm_inference_timesteps,
+        "voxcpm_retry_badcase": settings.voxcpm_retry_badcase,
+        "voxcpm_retry_badcase_max_times": settings.voxcpm_retry_badcase_max_times,
+        "voxcpm_retry_badcase_ratio_threshold": settings.voxcpm_retry_badcase_ratio_threshold,
+        "voxcpm_leading_silence_seconds": settings.voxcpm_leading_silence_seconds,
+        "voxcpm_trailing_silence_seconds": settings.voxcpm_trailing_silence_seconds,
         "pronounce_hotkey": settings.pronounce_hotkey,
         "toggle_detail_hotkey": settings.toggle_detail_hotkey,
         "trigger_now_hotkey": settings.trigger_now_hotkey,
@@ -462,6 +535,23 @@ def _normalize_prebuffer_seconds(value: Any, default: float) -> float:
     if value < 0:
         return default
     return round(min(float(value), 2.0), 2)
+
+
+def _normalize_bounded_float(value: Any, default: float, *, min_value: float, max_value: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return default
+    numeric = float(value)
+    if numeric < min_value:
+        return default
+    return round(min(numeric, max_value), 2)
+
+
+def _normalize_bounded_int(value: Any, default: int, *, min_value: int, max_value: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return default
+    if value < min_value:
+        return default
+    return min(value, max_value)
 
 
 def _normalize_path_text(value: Any, default: str) -> str:

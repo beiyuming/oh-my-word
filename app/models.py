@@ -29,6 +29,12 @@ class TtsProvider(str, Enum):
     VOXCPM_LOCAL = "voxcpm_local"
 
 
+class VoxCpmDevice(str, Enum):
+    AUTO = "auto"
+    CUDA = "cuda"
+    CPU = "cpu"
+
+
 class PronunciationContentMode(str, Enum):
     WORD = "word"
     EXAMPLE = "example"
@@ -56,6 +62,16 @@ DEFAULT_VOXCPM_ENDPOINT = "http://127.0.0.1:8808"
 DEFAULT_VOXCPM_TIMEOUT_SECONDS = 15
 DEFAULT_VOXCPM_VOICE_PROMPT = ""
 DEFAULT_VOXCPM_STREAM_PREBUFFER_SECONDS = 0.35
+DEFAULT_VOXCPM_STREAM_PREBUFFER_MAX_WAIT_SECONDS = 2.0
+DEFAULT_VOXCPM_DEVICE = VoxCpmDevice.AUTO
+DEFAULT_VOXCPM_OPTIMIZE = False
+DEFAULT_VOXCPM_CFG_VALUE = 1.5
+DEFAULT_VOXCPM_INFERENCE_TIMESTEPS = 10
+DEFAULT_VOXCPM_RETRY_BADCASE = True
+DEFAULT_VOXCPM_RETRY_BADCASE_MAX_TIMES = 3
+DEFAULT_VOXCPM_RETRY_BADCASE_RATIO_THRESHOLD = 4.0
+DEFAULT_VOXCPM_LEADING_SILENCE_SECONDS = 0.12
+DEFAULT_VOXCPM_TRAILING_SILENCE_SECONDS = 0.30
 DEFAULT_VOXCPM_INSTALL_ROOT = str(
     Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
     / "OhMyWord"
@@ -109,6 +125,16 @@ class AppSettings:
     voxcpm_modelscope_runtime_filename: str = DEFAULT_VOXCPM_MODELSCOPE_RUNTIME_FILENAME
     voxcpm_modelscope_min_driver_version: str = DEFAULT_VOXCPM_MODELSCOPE_MIN_DRIVER_VERSION
     voxcpm_stream_prebuffer_seconds: float = DEFAULT_VOXCPM_STREAM_PREBUFFER_SECONDS
+    voxcpm_stream_prebuffer_max_wait_seconds: float = DEFAULT_VOXCPM_STREAM_PREBUFFER_MAX_WAIT_SECONDS
+    voxcpm_device: VoxCpmDevice = DEFAULT_VOXCPM_DEVICE
+    voxcpm_optimize: bool = DEFAULT_VOXCPM_OPTIMIZE
+    voxcpm_cfg_value: float = DEFAULT_VOXCPM_CFG_VALUE
+    voxcpm_inference_timesteps: int = DEFAULT_VOXCPM_INFERENCE_TIMESTEPS
+    voxcpm_retry_badcase: bool = DEFAULT_VOXCPM_RETRY_BADCASE
+    voxcpm_retry_badcase_max_times: int = DEFAULT_VOXCPM_RETRY_BADCASE_MAX_TIMES
+    voxcpm_retry_badcase_ratio_threshold: float = DEFAULT_VOXCPM_RETRY_BADCASE_RATIO_THRESHOLD
+    voxcpm_leading_silence_seconds: float = DEFAULT_VOXCPM_LEADING_SILENCE_SECONDS
+    voxcpm_trailing_silence_seconds: float = DEFAULT_VOXCPM_TRAILING_SILENCE_SECONDS
     pronounce_hotkey: str = DEFAULT_PRONOUNCE_HOTKEY
     toggle_detail_hotkey: str = DEFAULT_TOGGLE_DETAIL_HOTKEY
     trigger_now_hotkey: str = DEFAULT_TRIGGER_NOW_HOTKEY

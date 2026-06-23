@@ -10,17 +10,28 @@ from tempfile import TemporaryDirectory
 from app.models import (
     Accent,
     AppSettings,
+    DEFAULT_VOXCPM_CFG_VALUE,
+    DEFAULT_VOXCPM_DEVICE,
+    DEFAULT_VOXCPM_INFERENCE_TIMESTEPS,
     DEFAULT_VOXCPM_INSTALL_ROOT,
+    DEFAULT_VOXCPM_LEADING_SILENCE_SECONDS,
     DEFAULT_VOXCPM_MODEL_CACHE_ROOT,
     DEFAULT_VOXCPM_MODELSCOPE_MIN_DRIVER_VERSION,
     DEFAULT_VOXCPM_MODELSCOPE_NAMESPACE,
     DEFAULT_VOXCPM_MODELSCOPE_REPOSITORY,
     DEFAULT_VOXCPM_MODELSCOPE_RUNTIME_FILENAME,
+    DEFAULT_VOXCPM_OPTIMIZE,
+    DEFAULT_VOXCPM_RETRY_BADCASE,
+    DEFAULT_VOXCPM_RETRY_BADCASE_MAX_TIMES,
+    DEFAULT_VOXCPM_RETRY_BADCASE_RATIO_THRESHOLD,
+    DEFAULT_VOXCPM_STREAM_PREBUFFER_MAX_WAIT_SECONDS,
+    DEFAULT_VOXCPM_TRAILING_SILENCE_SECONDS,
     DisplayMode,
     LearningState,
     OverlayPosition,
     PronunciationContentMode,
     TtsProvider,
+    VoxCpmDevice,
     WordProgress,
 )
 from app.settings import LearningStateStore, SettingsStore, settings_to_dict, setup_app_logger
@@ -75,6 +86,22 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual(settings.voxcpm_modelscope_runtime_filename, DEFAULT_VOXCPM_MODELSCOPE_RUNTIME_FILENAME)
         self.assertEqual(settings.voxcpm_modelscope_min_driver_version, DEFAULT_VOXCPM_MODELSCOPE_MIN_DRIVER_VERSION)
         self.assertEqual(settings.voxcpm_stream_prebuffer_seconds, 0.35)
+        self.assertIs(settings.voxcpm_device, DEFAULT_VOXCPM_DEVICE)
+        self.assertEqual(settings.voxcpm_optimize, DEFAULT_VOXCPM_OPTIMIZE)
+        self.assertEqual(settings.voxcpm_cfg_value, DEFAULT_VOXCPM_CFG_VALUE)
+        self.assertEqual(settings.voxcpm_inference_timesteps, DEFAULT_VOXCPM_INFERENCE_TIMESTEPS)
+        self.assertEqual(settings.voxcpm_retry_badcase, DEFAULT_VOXCPM_RETRY_BADCASE)
+        self.assertEqual(settings.voxcpm_retry_badcase_max_times, DEFAULT_VOXCPM_RETRY_BADCASE_MAX_TIMES)
+        self.assertEqual(
+            settings.voxcpm_retry_badcase_ratio_threshold,
+            DEFAULT_VOXCPM_RETRY_BADCASE_RATIO_THRESHOLD,
+        )
+        self.assertEqual(settings.voxcpm_leading_silence_seconds, DEFAULT_VOXCPM_LEADING_SILENCE_SECONDS)
+        self.assertEqual(settings.voxcpm_trailing_silence_seconds, DEFAULT_VOXCPM_TRAILING_SILENCE_SECONDS)
+        self.assertEqual(
+            settings.voxcpm_stream_prebuffer_max_wait_seconds,
+            DEFAULT_VOXCPM_STREAM_PREBUFFER_MAX_WAIT_SECONDS,
+        )
         self.assertIs(settings.pronunciation_content_mode, PronunciationContentMode.WORD_AND_EXAMPLE)
 
     def test_loads_defaults_when_missing(self) -> None:
@@ -173,6 +200,16 @@ class SettingsStoreTests(unittest.TestCase):
                         "voxcpm_modelscope_runtime_filename": "voxcpm2-runtime-win-x64-cu130-r2.zip",
                         "voxcpm_modelscope_min_driver_version": "581",
                         "voxcpm_stream_prebuffer_seconds": 0.8,
+                        "voxcpm_device": "cuda",
+                        "voxcpm_optimize": True,
+                        "voxcpm_cfg_value": 2.25,
+                        "voxcpm_inference_timesteps": 18,
+                        "voxcpm_retry_badcase": False,
+                        "voxcpm_retry_badcase_max_times": 5,
+                        "voxcpm_retry_badcase_ratio_threshold": 3.5,
+                        "voxcpm_leading_silence_seconds": 0.2,
+                        "voxcpm_trailing_silence_seconds": 0.45,
+                        "voxcpm_stream_prebuffer_max_wait_seconds": 1.25,
                     }
                 ),
                 encoding="utf-8",
@@ -199,6 +236,16 @@ class SettingsStoreTests(unittest.TestCase):
             self.assertEqual(settings.voxcpm_modelscope_runtime_filename, "voxcpm2-runtime-win-x64-cu130-r2.zip")
             self.assertEqual(settings.voxcpm_modelscope_min_driver_version, "581")
             self.assertEqual(settings.voxcpm_stream_prebuffer_seconds, 0.8)
+            self.assertIs(settings.voxcpm_device, VoxCpmDevice.CUDA)
+            self.assertTrue(settings.voxcpm_optimize)
+            self.assertEqual(settings.voxcpm_cfg_value, 2.25)
+            self.assertEqual(settings.voxcpm_inference_timesteps, 18)
+            self.assertFalse(settings.voxcpm_retry_badcase)
+            self.assertEqual(settings.voxcpm_retry_badcase_max_times, 5)
+            self.assertEqual(settings.voxcpm_retry_badcase_ratio_threshold, 3.5)
+            self.assertEqual(settings.voxcpm_leading_silence_seconds, 0.2)
+            self.assertEqual(settings.voxcpm_trailing_silence_seconds, 0.45)
+            self.assertEqual(settings.voxcpm_stream_prebuffer_max_wait_seconds, 1.25)
 
     def test_rejects_non_local_voxcpm_endpoint(self) -> None:
         with TemporaryDirectory() as tmp_dir:
@@ -222,6 +269,16 @@ class SettingsStoreTests(unittest.TestCase):
                         "voxcpm_modelscope_runtime_filename": {},
                         "voxcpm_modelscope_min_driver_version": None,
                         "voxcpm_stream_prebuffer_seconds": -1,
+                        "voxcpm_device": "gpu",
+                        "voxcpm_optimize": "yes",
+                        "voxcpm_cfg_value": -2.0,
+                        "voxcpm_inference_timesteps": 0,
+                        "voxcpm_retry_badcase": 1,
+                        "voxcpm_retry_badcase_max_times": -1,
+                        "voxcpm_retry_badcase_ratio_threshold": 99.0,
+                        "voxcpm_leading_silence_seconds": -0.5,
+                        "voxcpm_trailing_silence_seconds": 9.0,
+                        "voxcpm_stream_prebuffer_max_wait_seconds": 0,
                     }
                 ),
                 encoding="utf-8",
@@ -244,6 +301,19 @@ class SettingsStoreTests(unittest.TestCase):
             self.assertEqual(settings.voxcpm_modelscope_runtime_filename, DEFAULT_VOXCPM_MODELSCOPE_RUNTIME_FILENAME)
             self.assertEqual(settings.voxcpm_modelscope_min_driver_version, DEFAULT_VOXCPM_MODELSCOPE_MIN_DRIVER_VERSION)
             self.assertEqual(settings.voxcpm_stream_prebuffer_seconds, 0.35)
+            self.assertIs(settings.voxcpm_device, DEFAULT_VOXCPM_DEVICE)
+            self.assertEqual(settings.voxcpm_optimize, DEFAULT_VOXCPM_OPTIMIZE)
+            self.assertEqual(settings.voxcpm_cfg_value, DEFAULT_VOXCPM_CFG_VALUE)
+            self.assertEqual(settings.voxcpm_inference_timesteps, DEFAULT_VOXCPM_INFERENCE_TIMESTEPS)
+            self.assertEqual(settings.voxcpm_retry_badcase, DEFAULT_VOXCPM_RETRY_BADCASE)
+            self.assertEqual(settings.voxcpm_retry_badcase_max_times, DEFAULT_VOXCPM_RETRY_BADCASE_MAX_TIMES)
+            self.assertEqual(settings.voxcpm_retry_badcase_ratio_threshold, 20.0)
+            self.assertEqual(settings.voxcpm_leading_silence_seconds, DEFAULT_VOXCPM_LEADING_SILENCE_SECONDS)
+            self.assertEqual(settings.voxcpm_trailing_silence_seconds, 2.0)
+            self.assertEqual(
+                settings.voxcpm_stream_prebuffer_max_wait_seconds,
+                DEFAULT_VOXCPM_STREAM_PREBUFFER_MAX_WAIT_SECONDS,
+            )
 
     def test_persists_tts_provider_settings(self) -> None:
         payload = settings_to_dict(
@@ -264,6 +334,16 @@ class SettingsStoreTests(unittest.TestCase):
                 voxcpm_modelscope_runtime_filename="voxcpm2-runtime-win-x64-cu130-r2.zip",
                 voxcpm_modelscope_min_driver_version="581",
                 voxcpm_stream_prebuffer_seconds=0.65,
+                voxcpm_device=VoxCpmDevice.CPU,
+                voxcpm_optimize=True,
+                voxcpm_cfg_value=2.1,
+                voxcpm_inference_timesteps=16,
+                voxcpm_retry_badcase=False,
+                voxcpm_retry_badcase_max_times=4,
+                voxcpm_retry_badcase_ratio_threshold=3.2,
+                voxcpm_leading_silence_seconds=0.18,
+                voxcpm_trailing_silence_seconds=0.4,
+                voxcpm_stream_prebuffer_max_wait_seconds=1.75,
             )
         )
 
@@ -283,6 +363,16 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual(payload["voxcpm_modelscope_runtime_filename"], "voxcpm2-runtime-win-x64-cu130-r2.zip")
         self.assertEqual(payload["voxcpm_modelscope_min_driver_version"], "581")
         self.assertEqual(payload["voxcpm_stream_prebuffer_seconds"], 0.65)
+        self.assertEqual(payload["voxcpm_device"], "cpu")
+        self.assertTrue(payload["voxcpm_optimize"])
+        self.assertEqual(payload["voxcpm_cfg_value"], 2.1)
+        self.assertEqual(payload["voxcpm_inference_timesteps"], 16)
+        self.assertFalse(payload["voxcpm_retry_badcase"])
+        self.assertEqual(payload["voxcpm_retry_badcase_max_times"], 4)
+        self.assertEqual(payload["voxcpm_retry_badcase_ratio_threshold"], 3.2)
+        self.assertEqual(payload["voxcpm_leading_silence_seconds"], 0.18)
+        self.assertEqual(payload["voxcpm_trailing_silence_seconds"], 0.4)
+        self.assertEqual(payload["voxcpm_stream_prebuffer_max_wait_seconds"], 1.75)
 
     def test_persists_pretty_utf8_json(self) -> None:
         with TemporaryDirectory() as tmp_dir:

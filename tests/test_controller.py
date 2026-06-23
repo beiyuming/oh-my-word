@@ -20,6 +20,7 @@ from app.models import (
     PronunciationContentMode,
     TtsInitializationState,
     TtsProvider,
+    VoxCpmDevice,
     WordEntry,
     WordSelectionResult,
 )
@@ -368,6 +369,7 @@ class ControllerPopupActionTests(unittest.TestCase):
         controller.settings = AppSettings(
             tts_provider=TtsProvider.VOXCPM_LOCAL,
             voxcpm_stream_prebuffer_seconds=0.35,
+            voxcpm_stream_prebuffer_max_wait_seconds=2.0,
         )
         controller.settings_store = Mock()
         controller.hotkeys = Mock()
@@ -380,6 +382,7 @@ class ControllerPopupActionTests(unittest.TestCase):
         new_settings = AppSettings(
             tts_provider=TtsProvider.VOXCPM_LOCAL,
             voxcpm_stream_prebuffer_seconds=0.75,
+            voxcpm_stream_prebuffer_max_wait_seconds=2.0,
         )
 
         with patch("app.controller.PronunciationService") as service_class:
@@ -388,6 +391,32 @@ class ControllerPopupActionTests(unittest.TestCase):
 
         old_tts.stop.assert_called_once_with()
         self.assertEqual(service_class.call_args.kwargs["stream_prebuffer_seconds"], 0.75)
+
+    def test_apply_settings_rebuilds_tts_when_voxcpm_stream_prebuffer_max_wait_changes(self) -> None:
+        controller = AppController(self.app)
+        controller.settings = AppSettings(
+            tts_provider=TtsProvider.VOXCPM_LOCAL,
+            voxcpm_stream_prebuffer_max_wait_seconds=2.0,
+        )
+        controller.settings_store = Mock()
+        controller.hotkeys = Mock()
+        controller.hotkeys.registration_errors = {}
+        controller.tray = Mock()
+        controller.scheduler = Mock()
+        controller.tts = Mock()
+        old_tts = controller.tts
+
+        new_settings = AppSettings(
+            tts_provider=TtsProvider.VOXCPM_LOCAL,
+            voxcpm_stream_prebuffer_max_wait_seconds=1.0,
+        )
+
+        with patch("app.controller.PronunciationService") as service_class:
+            service_class.return_value = Mock()
+            controller._apply_settings(new_settings)
+
+        old_tts.stop.assert_called_once_with()
+        self.assertEqual(service_class.call_args.kwargs["stream_prebuffer_max_wait_seconds"], 1.0)
 
     def test_pronounce_text_autostarts_installed_voxcpm_when_enabled(self) -> None:
         controller = AppController(self.app)
@@ -504,6 +533,15 @@ class ControllerPopupActionTests(unittest.TestCase):
             voxcpm_model_cache_root="E:\\Models\\VoxCPM2",
             voxcpm_use_model_mirror=False,
             voxcpm_endpoint="http://localhost:8810",
+            voxcpm_device=VoxCpmDevice.CUDA,
+            voxcpm_optimize=True,
+            voxcpm_cfg_value=2.25,
+            voxcpm_inference_timesteps=18,
+            voxcpm_retry_badcase=False,
+            voxcpm_retry_badcase_max_times=5,
+            voxcpm_retry_badcase_ratio_threshold=3.5,
+            voxcpm_leading_silence_seconds=0.2,
+            voxcpm_trailing_silence_seconds=0.45,
         )
 
         controller._apply_settings(new_settings)
@@ -513,6 +551,15 @@ class ControllerPopupActionTests(unittest.TestCase):
             model_cache_root=Path("E:\\Models\\VoxCPM2"),
             endpoint="http://localhost:8810",
             use_model_mirror=False,
+            device="cuda",
+            optimize=True,
+            cfg_value=2.25,
+            inference_timesteps=18,
+            retry_badcase=False,
+            retry_badcase_max_times=5,
+            retry_badcase_ratio_threshold=3.5,
+            leading_silence_seconds=0.2,
+            trailing_silence_seconds=0.45,
         )
 
     def test_check_voxcpm_service_applies_open_settings_dialog_values_before_refreshing(self) -> None:
@@ -541,6 +588,15 @@ class ControllerPopupActionTests(unittest.TestCase):
             model_cache_root=Path("E:\\Models\\VoxCPM2"),
             endpoint="http://localhost:8810",
             use_model_mirror=False,
+            device="auto",
+            optimize=False,
+            cfg_value=1.5,
+            inference_timesteps=10,
+            retry_badcase=True,
+            retry_badcase_max_times=3,
+            retry_badcase_ratio_threshold=4.0,
+            leading_silence_seconds=0.12,
+            trailing_silence_seconds=0.3,
         )
         controller.voxcpm_service.health_check.assert_called_once_with()
         controller.tray.show_message.assert_called_once_with("oh my word", "VoxCPM 服务未响应。")
@@ -657,6 +713,7 @@ class ControllerPopupActionTests(unittest.TestCase):
             controller.settings = AppSettings(
                 tts_provider=TtsProvider.VOXCPM_LOCAL,
                 voxcpm_stream_prebuffer_seconds=0.9,
+                voxcpm_stream_prebuffer_max_wait_seconds=1.2,
             )
 
             with patch("app.controller.PronunciationService") as service_class:
@@ -664,6 +721,7 @@ class ControllerPopupActionTests(unittest.TestCase):
                 controller._create_tts_service()
 
         self.assertEqual(service_class.call_args.kwargs["stream_prebuffer_seconds"], 0.9)
+        self.assertEqual(service_class.call_args.kwargs["stream_prebuffer_max_wait_seconds"], 1.2)
 
     def test_runtime_voxcpm_defaults_use_app_tts_directory_when_settings_are_default(self) -> None:
         controller = AppController(self.app)

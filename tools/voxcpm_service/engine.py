@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from functools import lru_cache
 from collections.abc import Iterator
 
@@ -8,12 +9,30 @@ import numpy as np
 from voxcpm import VoxCPM
 
 
-VOXCPM_CFG_VALUE = float(os.environ.get("VOXCPM_CFG_VALUE", "1.5"))
-VOXCPM_RETRY_BADCASE_RATIO_THRESHOLD = float(
-    os.environ.get("VOXCPM_RETRY_BADCASE_RATIO_THRESHOLD", "4.0")
-)
-LEADING_SILENCE_SECONDS = 0.12
-TRAILING_SILENCE_SECONDS = 0.30
+_LOGGER = logging.getLogger("oh_my_word.voxcpm_service.engine")
+
+
+def _env_float(name: str, default: str) -> float:
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _env_int(name: str, default: str) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return int(default)
+
+
+VOXCPM_CFG_VALUE = _env_float("VOXCPM_CFG_VALUE", "1.5")
+VOXCPM_INFERENCE_TIMESTEPS = _env_int("VOXCPM_INFERENCE_TIMESTEPS", "10")
+VOXCPM_RETRY_BADCASE = os.environ.get("VOXCPM_RETRY_BADCASE", "1") != "0"
+VOXCPM_RETRY_BADCASE_MAX_TIMES = _env_int("VOXCPM_RETRY_BADCASE_MAX_TIMES", "3")
+VOXCPM_RETRY_BADCASE_RATIO_THRESHOLD = _env_float("VOXCPM_RETRY_BADCASE_RATIO_THRESHOLD", "4.0")
+LEADING_SILENCE_SECONDS = _env_float("VOXCPM_LEADING_SILENCE_SECONDS", "0.12")
+TRAILING_SILENCE_SECONDS = _env_float("VOXCPM_TRAILING_SILENCE_SECONDS", "0.3")
 
 
 @lru_cache(maxsize=1)
@@ -21,12 +40,23 @@ def get_model() -> VoxCPM:
     model_id = os.environ.get("VOXCPM_MODEL_ID", "openbmb/VoxCPM2")
     device = os.environ.get("VOXCPM_DEVICE", "auto")
     optimize = os.environ.get("VOXCPM_OPTIMIZE", "0") != "0"
-    return VoxCPM.from_pretrained(
-        model_id,
-        load_denoiser=False,
-        device=device,
-        optimize=optimize,
-    )
+    try:
+        return VoxCPM.from_pretrained(
+            model_id,
+            load_denoiser=False,
+            device=device,
+            optimize=optimize,
+        )
+    except Exception:
+        if not optimize:
+            raise
+        _LOGGER.exception("VoxCPM optimized load failed; retrying with optimize=False.")
+        return VoxCPM.from_pretrained(
+            model_id,
+            load_denoiser=False,
+            device=device,
+            optimize=False,
+        )
 
 
 def synthesize_wav_samples(text: str, *, accent: str) -> tuple[np.ndarray, int]:
@@ -36,9 +66,9 @@ def synthesize_wav_samples(text: str, *, accent: str) -> tuple[np.ndarray, int]:
     wav = model.generate(
         text=text,
         cfg_value=VOXCPM_CFG_VALUE,
-        inference_timesteps=10,
-        retry_badcase=True,
-        retry_badcase_max_times=3,
+        inference_timesteps=VOXCPM_INFERENCE_TIMESTEPS,
+        retry_badcase=VOXCPM_RETRY_BADCASE,
+        retry_badcase_max_times=VOXCPM_RETRY_BADCASE_MAX_TIMES,
         retry_badcase_ratio_threshold=VOXCPM_RETRY_BADCASE_RATIO_THRESHOLD,
     )
     sample_rate = model.tts_model.sample_rate
@@ -59,9 +89,9 @@ def synthesize_pcm_chunks(text: str, *, accent: str) -> tuple[Iterator[bytes], i
         for chunk in model.generate_streaming(
             text=text,
             cfg_value=VOXCPM_CFG_VALUE,
-            inference_timesteps=10,
-            retry_badcase=True,
-            retry_badcase_max_times=3,
+            inference_timesteps=VOXCPM_INFERENCE_TIMESTEPS,
+            retry_badcase=VOXCPM_RETRY_BADCASE,
+            retry_badcase_max_times=VOXCPM_RETRY_BADCASE_MAX_TIMES,
             retry_badcase_ratio_threshold=VOXCPM_RETRY_BADCASE_RATIO_THRESHOLD,
         ):
             samples = np.asarray(chunk, dtype=np.float32)

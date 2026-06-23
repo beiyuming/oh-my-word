@@ -2,7 +2,7 @@
 
 一个 Windows-first 的 `oh my word` Python 便携重写版，技术栈为 `Python + PySide6`。
 
-当前版本：`v0.1.18`。设置窗口的“关于”页会显示当前版本和更新日志。
+当前版本：`v0.1.19`。设置窗口的“关于”页会显示当前版本和更新日志。
 
 ## 范围
 
@@ -65,7 +65,9 @@ py -3.11 main.py
 
 `settings.json` 只保存用户配置。`oh_my_word.sqlite3` 保存卡片学习状态、近期单词、FSRS 载荷、复习日志、稍后状态和全局暂停状态。`learning_state.json` 是旧版学习状态文件；如果存在，应用会在启动时兼容导入，不会删除它。
 
-发音设置保存在 `settings.json` 中：`pronunciation_content_mode` 默认为 `word_and_example`，可在设置页选择只读单词、只读例句或单词加例句；`auto_pronounce_on_popup` 默认为 `false`，用于控制单词弹出后是否自动朗读；`auto_pronounce_delay_seconds` 默认为 `1.0` 秒，可在 `0.00` 到 `10.00` 秒之间调整，让用户先看一眼单词再开始播放；`tts_provider` 默认为 `system_qt`，可选值 `voxcpm_local` 表示调用用户本机的 VoxCPM companion process；`voxcpm_endpoint` 第一版只接受本地 HTTP 地址（默认 `http://127.0.0.1:8808`）；`voxcpm_timeout_seconds` 默认为 15 秒。VoxCPM 相关设置还包括 `voxcpm_install_root`、`voxcpm_model_cache_root`、`voxcpm_use_model_mirror`、`voxcpm_auto_start`、`voxcpm_voice_prompt`、`voxcpm_stream_prebuffer_seconds`，以及可编辑的 `voxcpm_modelscope_namespace`、`voxcpm_modelscope_repository`、`voxcpm_modelscope_runtime_filename`、`voxcpm_modelscope_min_driver_version`，用于设置页下载/导入预构建运行时包、单独下载并导入模型包、查看 runtime ID / CUDA / 最低驱动 / 模型版本等元信息、控制使用时自动启动，以及调整流式 PCM 播放预缓冲时间。`voxcpm_stream_prebuffer_seconds` 默认 0.35 秒，可在设置页调整为 0.00 到 2.00 秒。
+发音设置保存在 `settings.json` 中：`pronunciation_content_mode` 默认为 `word_and_example`，可在设置页选择只读单词、只读例句或单词加例句；`auto_pronounce_on_popup` 默认为 `false`，用于控制单词弹出后是否自动朗读；`auto_pronounce_delay_seconds` 默认为 `1.0` 秒，可在 `0.00` 到 `10.00` 秒之间调整，让用户先看一眼单词再开始播放；`tts_provider` 默认为 `system_qt`，可选值 `voxcpm_local` 表示调用用户本机的 VoxCPM companion process；`voxcpm_endpoint` 第一版只接受本地 HTTP 地址（默认 `http://127.0.0.1:8808`）；`voxcpm_timeout_seconds` 默认为 15 秒。VoxCPM 相关设置还包括 `voxcpm_install_root`、`voxcpm_model_cache_root`、`voxcpm_use_model_mirror`、`voxcpm_auto_start`、`voxcpm_voice_prompt`、`voxcpm_stream_prebuffer_seconds`、`voxcpm_stream_prebuffer_max_wait_seconds`，以及可编辑的 `voxcpm_modelscope_namespace`、`voxcpm_modelscope_repository`、`voxcpm_modelscope_runtime_filename`、`voxcpm_modelscope_min_driver_version`，用于设置页下载/导入预构建运行时包、单独下载并导入模型包、查看 runtime ID / CUDA / 最低驱动 / 模型版本等元信息、控制使用时自动启动，以及调整流式 PCM 播放预缓冲。`voxcpm_stream_prebuffer_seconds` 默认 0.35 秒，可在设置页调整为 0.00 到 2.00 秒；`voxcpm_stream_prebuffer_max_wait_seconds` 默认 2.0 秒，到点后如果已经收到有效 PCM 会先开播，避免慢 GPU 为攒满目标音频秒数而额外等待过久。
+
+设置页“发音”分类中的 `VoxCPM 高级参数` 默认折叠，面向需要调校本地模型的用户。该区域会持久化并传递给 companion service：`voxcpm_device`（`auto` / `cuda` / `cpu`）、`voxcpm_optimize`、`voxcpm_cfg_value`、`voxcpm_inference_timesteps`、`voxcpm_retry_badcase`、`voxcpm_retry_badcase_max_times`、`voxcpm_retry_badcase_ratio_threshold`、`voxcpm_leading_silence_seconds` 和 `voxcpm_trailing_silence_seconds`。默认值沿用当前兼容优先策略：设备 `auto`、`optimize=false`、`cfg_value=1.5`、`inference_timesteps=10`、badcase 重试开启且最多 3 次。
 
 ## 词库
 
@@ -131,7 +133,7 @@ py -3.11 -m pytest tests -q
 .\build\build_installer.ps1
 ```
 
-该脚本会先构建 portable 版本，再生成带版本号的安装包，例如当前版本输出为 `dist/oh-my-word-setup-v0.1.18.exe`。安装包提供简单的 Windows 图形界面，允许用户选择安装目录，并可选择创建桌面/开始菜单快捷方式和安装完成后启动应用。
+该脚本会先构建 portable 版本，再生成带版本号的安装包，例如当前版本输出为 `dist/oh-my-word-setup-v0.1.19.exe`。安装包提供简单的 Windows 图形界面，允许用户选择安装目录，并可选择创建桌面/开始菜单快捷方式和安装完成后启动应用。
 
 安装器会用安装清单管理应用文件。用户选择已有目录时，安装器不会递归清空整个目录；卸载脚本只删除清单中的应用文件和相关快捷方式。
 
@@ -169,7 +171,7 @@ VoxCPM2 预构建运行时包不追求“任意 Windows 机器都能跑”，而
 
 如果你的机器不在这个支持矩阵内，或者手头没有匹配的 runtime zip，当前版本不再提供旧的脚本式后台安装入口；这类环境建议继续使用 `system_qt` 发音，或等待对应矩阵的预构建运行时包。
 
-VoxCPM provider 默认优先调用 `POST /synthesize_stream`，服务端使用 VoxCPM 的 `generate_streaming()` 输出 `s16le` PCM chunk，桌面端用 `QAudioSink` 边接收边播放，并按 `voxcpm_stream_prebuffer_seconds` 先预缓冲一小段 PCM 来降低句中卡顿；保存设置后会重建 VoxCPM TTS 后端，使新的预缓冲时间立即用于后续朗读。旧服务不支持流式 endpoint 时，客户端会回退到 `POST /synthesize` 的完整 WAV 播放路径。service 显式启用 VoxCPM 官方 badcase 重试参数，并在流式和完整 WAV 输出首尾加入短静音垫，降低短词起音和尾音被截断的概率；默认 `cfg_value` 为 `1.5`，可通过 `VOXCPM_CFG_VALUE` 环境变量微调。使用 `voxcpm_local` 时，应用会把独立单词包装为 `"word".` 再发送给 VoxCPM，以强化短词边界；单词加例句模式中单词和例句之间使用轻停顿空格，不再使用双换行强停顿；如果设置了 `voxcpm_voice_prompt`，应用会按 VoxCPM Voice Design 格式把提示词作为 `(prompt)` 前缀加到合成文本前。
+VoxCPM provider 默认优先调用 `POST /synthesize_stream`，服务端使用 VoxCPM 的 `generate_streaming()` 输出 `s16le` PCM chunk，桌面端用 `QAudioSink` 边接收边播放，并按 `voxcpm_stream_prebuffer_seconds` 先预缓冲一小段 PCM 来降低句中卡顿；保存设置后会重建 VoxCPM TTS 后端，使新的预缓冲和最大等待时间立即用于后续朗读。旧服务不支持流式 endpoint 并返回 404/405 时，客户端会在日志中记录原因，并回退到 `POST /synthesize` 的完整 WAV 播放路径。流式路径会记录首字节耗时、达到预缓冲耗时、已缓冲音频秒数、总生成耗时和平均生成倍率；如果生成速度低于实时播放，会提示降低高级参数、改用完整 WAV 或增大预缓冲。service 使用设置页写入的环境变量控制 VoxCPM 设备、optimize、CFG、推理步数、badcase 重试和首尾静音；如果启用 optimize 后模型加载失败，service 会记录异常并用 `optimize=False` 重试，避免直接让应用崩溃。使用 `voxcpm_local` 时，应用会把独立单词包装为 `"word".` 再发送给 VoxCPM，以强化短词边界；单词加例句模式中单词和例句之间使用轻停顿空格，不再使用双换行强停顿；如果设置了 `voxcpm_voice_prompt`，应用会按 VoxCPM Voice Design 格式把提示词作为 `(prompt)` 前缀加到合成文本前。
 
 ## 备注
 

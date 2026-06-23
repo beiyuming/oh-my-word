@@ -75,6 +75,15 @@ class VoxCpmServiceManager(QObject):
         script_root: Path,
         endpoint: str = "http://127.0.0.1:8808",
         use_model_mirror: bool = True,
+        device: str = "auto",
+        optimize: bool = False,
+        cfg_value: float = 1.5,
+        inference_timesteps: int = 10,
+        retry_badcase: bool = True,
+        retry_badcase_max_times: int = 3,
+        retry_badcase_ratio_threshold: float = 4.0,
+        leading_silence_seconds: float = 0.12,
+        trailing_silence_seconds: float = 0.30,
         process_factory: ProcessFactory | None = None,
         urlopen_func: UrlopenFunc | None = None,
         endpoint_process_finder: EndpointProcessFinder | None = None,
@@ -89,6 +98,15 @@ class VoxCpmServiceManager(QObject):
         self._script_root = Path(script_root)
         self._endpoint = endpoint.rstrip("/")
         self._use_model_mirror = use_model_mirror
+        self._device = device
+        self._optimize = optimize
+        self._cfg_value = cfg_value
+        self._inference_timesteps = inference_timesteps
+        self._retry_badcase = retry_badcase
+        self._retry_badcase_max_times = retry_badcase_max_times
+        self._retry_badcase_ratio_threshold = retry_badcase_ratio_threshold
+        self._leading_silence_seconds = leading_silence_seconds
+        self._trailing_silence_seconds = trailing_silence_seconds
         self._process_factory = process_factory or subprocess.Popen
         self._urlopen = urlopen_func or urlopen
         self._endpoint_process_finder = endpoint_process_finder or self._find_endpoint_processes
@@ -113,11 +131,38 @@ class VoxCpmServiceManager(QObject):
         model_cache_root: Path,
         endpoint: str,
         use_model_mirror: bool,
+        device: str | None = None,
+        optimize: bool | None = None,
+        cfg_value: float | None = None,
+        inference_timesteps: int | None = None,
+        retry_badcase: bool | None = None,
+        retry_badcase_max_times: int | None = None,
+        retry_badcase_ratio_threshold: float | None = None,
+        leading_silence_seconds: float | None = None,
+        trailing_silence_seconds: float | None = None,
     ) -> None:
         self._install_root = Path(install_root)
         self._model_cache_root = Path(model_cache_root)
         self._endpoint = endpoint.rstrip("/")
         self._use_model_mirror = use_model_mirror
+        if device is not None:
+            self._device = device
+        if optimize is not None:
+            self._optimize = optimize
+        if cfg_value is not None:
+            self._cfg_value = cfg_value
+        if inference_timesteps is not None:
+            self._inference_timesteps = inference_timesteps
+        if retry_badcase is not None:
+            self._retry_badcase = retry_badcase
+        if retry_badcase_max_times is not None:
+            self._retry_badcase_max_times = retry_badcase_max_times
+        if retry_badcase_ratio_threshold is not None:
+            self._retry_badcase_ratio_threshold = retry_badcase_ratio_threshold
+        if leading_silence_seconds is not None:
+            self._leading_silence_seconds = leading_silence_seconds
+        if trailing_silence_seconds is not None:
+            self._trailing_silence_seconds = trailing_silence_seconds
         self._rewrite_imported_runtime_scripts_if_needed()
         self._emit_status()
 
@@ -1011,6 +1056,15 @@ class VoxCpmServiceManager(QObject):
                 f"$env:HF_HOME = '{model_cache_root}'",
                 f"$env:HF_HUB_CACHE = '{model_hub_cache_root}'",
                 f"$env:VOXCPM_MODEL_ID = '{local_model_root}'",
+                f"$env:VOXCPM_DEVICE = '{self._escape_powershell_single_quoted(self._device)}'",
+                f"$env:VOXCPM_OPTIMIZE = '{self._bool_env(self._optimize)}'",
+                f"$env:VOXCPM_CFG_VALUE = '{self._cfg_value:g}'",
+                f"$env:VOXCPM_INFERENCE_TIMESTEPS = '{self._inference_timesteps}'",
+                f"$env:VOXCPM_RETRY_BADCASE = '{self._bool_env(self._retry_badcase)}'",
+                f"$env:VOXCPM_RETRY_BADCASE_MAX_TIMES = '{self._retry_badcase_max_times}'",
+                f"$env:VOXCPM_RETRY_BADCASE_RATIO_THRESHOLD = '{self._retry_badcase_ratio_threshold:g}'",
+                f"$env:VOXCPM_LEADING_SILENCE_SECONDS = '{self._leading_silence_seconds:g}'",
+                f"$env:VOXCPM_TRAILING_SILENCE_SECONDS = '{self._trailing_silence_seconds:g}'",
                 "Set-Location -LiteralPath $scriptRoot",
                 f'& $runtimePython -m uvicorn service.server:app --host "{host}" --port {port}',
                 "",
@@ -1041,3 +1095,7 @@ class VoxCpmServiceManager(QObject):
     @staticmethod
     def _escape_powershell_single_quoted(value: str) -> str:
         return value.replace("'", "''")
+
+    @staticmethod
+    def _bool_env(value: bool) -> str:
+        return "1" if value else "0"

@@ -620,6 +620,7 @@ class AppController(QObject):
             timeout_seconds=self.settings.voxcpm_timeout_seconds,
             cache_dir=self._paths.storage_dir / "tts_cache",
             stream_prebuffer_seconds=self.settings.voxcpm_stream_prebuffer_seconds,
+            stream_prebuffer_max_wait_seconds=self.settings.voxcpm_stream_prebuffer_max_wait_seconds,
             on_error=self._log_warning_text,
         )
 
@@ -640,6 +641,15 @@ class AppController(QObject):
             endpoint=self.settings.voxcpm_endpoint,
             use_model_mirror=self.settings.voxcpm_use_model_mirror,
             script_root=self._paths.data_dir.parent / "tools" / "voxcpm_service",
+            device=self.settings.voxcpm_device.value,
+            optimize=self.settings.voxcpm_optimize,
+            cfg_value=self.settings.voxcpm_cfg_value,
+            inference_timesteps=self.settings.voxcpm_inference_timesteps,
+            retry_badcase=self.settings.voxcpm_retry_badcase,
+            retry_badcase_max_times=self.settings.voxcpm_retry_badcase_max_times,
+            retry_badcase_ratio_threshold=self.settings.voxcpm_retry_badcase_ratio_threshold,
+            leading_silence_seconds=self.settings.voxcpm_leading_silence_seconds,
+            trailing_silence_seconds=self.settings.voxcpm_trailing_silence_seconds,
         )
 
     def _settings_with_runtime_voxcpm_defaults(self, settings: AppSettings) -> AppSettings:
@@ -699,12 +709,24 @@ class AppController(QObject):
             or previous_settings.voxcpm_timeout_seconds != target_settings.voxcpm_timeout_seconds
             or previous_settings.voxcpm_stream_prebuffer_seconds
             != target_settings.voxcpm_stream_prebuffer_seconds
+            or previous_settings.voxcpm_stream_prebuffer_max_wait_seconds
+            != target_settings.voxcpm_stream_prebuffer_max_wait_seconds
         )
         voxcpm_manager_changed = (
             previous_settings.voxcpm_install_root != target_settings.voxcpm_install_root
             or previous_settings.voxcpm_model_cache_root != target_settings.voxcpm_model_cache_root
             or previous_settings.voxcpm_endpoint != target_settings.voxcpm_endpoint
             or previous_settings.voxcpm_use_model_mirror != target_settings.voxcpm_use_model_mirror
+            or previous_settings.voxcpm_device != target_settings.voxcpm_device
+            or previous_settings.voxcpm_optimize != target_settings.voxcpm_optimize
+            or previous_settings.voxcpm_cfg_value != target_settings.voxcpm_cfg_value
+            or previous_settings.voxcpm_inference_timesteps != target_settings.voxcpm_inference_timesteps
+            or previous_settings.voxcpm_retry_badcase != target_settings.voxcpm_retry_badcase
+            or previous_settings.voxcpm_retry_badcase_max_times != target_settings.voxcpm_retry_badcase_max_times
+            or previous_settings.voxcpm_retry_badcase_ratio_threshold
+            != target_settings.voxcpm_retry_badcase_ratio_threshold
+            or previous_settings.voxcpm_leading_silence_seconds != target_settings.voxcpm_leading_silence_seconds
+            or previous_settings.voxcpm_trailing_silence_seconds != target_settings.voxcpm_trailing_silence_seconds
         )
         self.settings = target_settings
 
@@ -714,6 +736,15 @@ class AppController(QObject):
                 model_cache_root=Path(self.settings.voxcpm_model_cache_root),
                 endpoint=self.settings.voxcpm_endpoint,
                 use_model_mirror=self.settings.voxcpm_use_model_mirror,
+                device=self.settings.voxcpm_device.value,
+                optimize=self.settings.voxcpm_optimize,
+                cfg_value=self.settings.voxcpm_cfg_value,
+                inference_timesteps=self.settings.voxcpm_inference_timesteps,
+                retry_badcase=self.settings.voxcpm_retry_badcase,
+                retry_badcase_max_times=self.settings.voxcpm_retry_badcase_max_times,
+                retry_badcase_ratio_threshold=self.settings.voxcpm_retry_badcase_ratio_threshold,
+                leading_silence_seconds=self.settings.voxcpm_leading_silence_seconds,
+                trailing_silence_seconds=self.settings.voxcpm_trailing_silence_seconds,
             )
 
         if self.tray is not None:

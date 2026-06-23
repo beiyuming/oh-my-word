@@ -491,6 +491,37 @@ class VoxCpmServiceManagerTests(unittest.TestCase):
             self.assertNotEqual(start_script.strip(), "start-service")
             self.assertNotEqual(healthcheck_script.strip(), "health-check")
 
+    def test_imported_start_script_includes_voxcpm_advanced_environment(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            manager = VoxCpmServiceManager(
+                install_root=root / "voxcpm",
+                model_cache_root=root / "custom-model-cache",
+                script_root=root / "scripts",
+                endpoint="http://127.0.0.1:8808",
+                device="cuda",
+                optimize=True,
+                cfg_value=2.25,
+                inference_timesteps=18,
+                retry_badcase=False,
+                retry_badcase_max_times=5,
+                retry_badcase_ratio_threshold=3.5,
+                leading_silence_seconds=0.2,
+                trailing_silence_seconds=0.45,
+            )
+
+            start_script = manager._build_imported_start_script()
+
+        self.assertIn("$env:VOXCPM_DEVICE = 'cuda'", start_script)
+        self.assertIn("$env:VOXCPM_OPTIMIZE = '1'", start_script)
+        self.assertIn("$env:VOXCPM_CFG_VALUE = '2.25'", start_script)
+        self.assertIn("$env:VOXCPM_INFERENCE_TIMESTEPS = '18'", start_script)
+        self.assertIn("$env:VOXCPM_RETRY_BADCASE = '0'", start_script)
+        self.assertIn("$env:VOXCPM_RETRY_BADCASE_MAX_TIMES = '5'", start_script)
+        self.assertIn("$env:VOXCPM_RETRY_BADCASE_RATIO_THRESHOLD = '3.5'", start_script)
+        self.assertIn("$env:VOXCPM_LEADING_SILENCE_SECONDS = '0.2'", start_script)
+        self.assertIn("$env:VOXCPM_TRAILING_SILENCE_SECONDS = '0.45'", start_script)
+
     def test_import_runtime_package_falls_back_to_shutil_move_when_runtime_rename_is_denied(self) -> None:
         with TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)

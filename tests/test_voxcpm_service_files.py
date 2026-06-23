@@ -232,13 +232,39 @@ def test_voxcpm_service_uses_supported_generate_arguments_for_badcase_retries() 
     assert "model.generate(" in engine_source
     assert "model.generate_streaming(" in engine_source
     assert "control=" not in engine_source
-    assert 'os.environ.get("VOXCPM_CFG_VALUE", "1.5")' in engine_source
-    assert 'os.environ.get("VOXCPM_RETRY_BADCASE_RATIO_THRESHOLD", "4.0")' in engine_source
+    assert 'VOXCPM_CFG_VALUE = _env_float("VOXCPM_CFG_VALUE", "1.5")' in engine_source
+    assert (
+        'VOXCPM_RETRY_BADCASE_RATIO_THRESHOLD = _env_float("VOXCPM_RETRY_BADCASE_RATIO_THRESHOLD", "4.0")'
+        in engine_source
+    )
     assert "cfg_value=VOXCPM_CFG_VALUE" in engine_source
-    assert "inference_timesteps=10" in engine_source
-    assert "retry_badcase=True" in engine_source
-    assert "retry_badcase_max_times=3" in engine_source
+    assert "inference_timesteps=VOXCPM_INFERENCE_TIMESTEPS" in engine_source
+    assert "retry_badcase=VOXCPM_RETRY_BADCASE" in engine_source
+    assert "retry_badcase_max_times=VOXCPM_RETRY_BADCASE_MAX_TIMES" in engine_source
     assert "retry_badcase_ratio_threshold=VOXCPM_RETRY_BADCASE_RATIO_THRESHOLD" in engine_source
+
+
+def test_voxcpm_service_advanced_parameters_are_environment_driven() -> None:
+    engine_source = (SERVICE_DIR / "engine.py").read_text(encoding="utf-8")
+
+    assert 'os.environ.get("VOXCPM_DEVICE", "auto")' in engine_source
+    assert 'VOXCPM_INFERENCE_TIMESTEPS = _env_int("VOXCPM_INFERENCE_TIMESTEPS", "10")' in engine_source
+    assert 'os.environ.get("VOXCPM_RETRY_BADCASE", "1")' in engine_source
+    assert 'VOXCPM_RETRY_BADCASE_MAX_TIMES = _env_int("VOXCPM_RETRY_BADCASE_MAX_TIMES", "3")' in engine_source
+    assert 'LEADING_SILENCE_SECONDS = _env_float("VOXCPM_LEADING_SILENCE_SECONDS", "0.12")' in engine_source
+    assert 'TRAILING_SILENCE_SECONDS = _env_float("VOXCPM_TRAILING_SILENCE_SECONDS", "0.3")' in engine_source
+    assert "inference_timesteps=VOXCPM_INFERENCE_TIMESTEPS" in engine_source
+    assert "retry_badcase=VOXCPM_RETRY_BADCASE" in engine_source
+    assert "retry_badcase_max_times=VOXCPM_RETRY_BADCASE_MAX_TIMES" in engine_source
+    assert "retry_badcase_ratio_threshold=VOXCPM_RETRY_BADCASE_RATIO_THRESHOLD" in engine_source
+
+
+def test_voxcpm_service_optimize_falls_back_without_crashing_model_load() -> None:
+    engine_source = (SERVICE_DIR / "engine.py").read_text(encoding="utf-8")
+
+    assert "except Exception" in engine_source
+    assert "optimize=False" in engine_source
+    assert "VOXCPM_OPTIMIZE" in engine_source
 
 
 def test_voxcpm_service_pads_audio_edges_to_protect_short_word_playback() -> None:
@@ -262,6 +288,16 @@ def test_voxcpm_service_streams_s16le_pcm_chunks() -> None:
     assert "X-OhMyWord-Sample-Rate" in server_source
     assert "X-OhMyWord-Sample-Format" in server_source
     assert "s16le" in server_source
+
+
+def test_voxcpm_client_logs_streaming_diagnostics_and_fallback_reason() -> None:
+    tts_source = (ROOT / "app" / "tts.py").read_text(encoding="utf-8")
+
+    assert "VoxCPM stream first byte" in tts_source
+    assert "VoxCPM stream prebuffer reached" in tts_source
+    assert "VoxCPM stream generation finished" in tts_source
+    assert "below real-time playback" in tts_source
+    assert "does not support /synthesize_stream" in tts_source
 
 
 def test_windows_installer_removes_legacy_voxcpm_setup_ui() -> None:
