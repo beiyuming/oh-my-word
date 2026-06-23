@@ -2,7 +2,7 @@
 
 一个 Windows-first 的 `oh my word` Python 便携重写版，技术栈为 `Python + PySide6`。
 
-当前版本：`v0.1.19`。设置窗口的“关于”页会显示当前版本和更新日志。
+当前版本：`v0.1.20`。设置窗口的“关于”页会显示当前版本和更新日志。
 
 ## 范围
 
@@ -69,6 +69,8 @@ py -3.11 main.py
 
 设置页“发音”分类中的 `VoxCPM 高级参数` 默认折叠，面向需要调校本地模型的用户。该区域会持久化并传递给 companion service：`voxcpm_device`（`auto` / `cuda` / `cpu`）、`voxcpm_optimize`、`voxcpm_cfg_value`、`voxcpm_inference_timesteps`、`voxcpm_retry_badcase`、`voxcpm_retry_badcase_max_times`、`voxcpm_retry_badcase_ratio_threshold`、`voxcpm_leading_silence_seconds` 和 `voxcpm_trailing_silence_seconds`。默认值沿用当前兼容优先策略：设备 `auto`、`optimize=false`、`cfg_value=1.5`、`inference_timesteps=10`、badcase 重试开启且最多 3 次。
 
+设置窗口的“帮助”分类内置 VoxCPM 参数操作文档，说明每个参数的用途、建议范围、慢 GPU 调参顺序，以及旧 service 不支持流式接口时的完整 WAV fallback 行为。
+
 ## 词库
 
 应用会按文件名顺序加载 `data/wordbooks/` 下的所有 JSON 文件。
@@ -133,7 +135,7 @@ py -3.11 -m pytest tests -q
 .\build\build_installer.ps1
 ```
 
-该脚本会先构建 portable 版本，再生成带版本号的安装包，例如当前版本输出为 `dist/oh-my-word-setup-v0.1.19.exe`。安装包提供简单的 Windows 图形界面，允许用户选择安装目录，并可选择创建桌面/开始菜单快捷方式和安装完成后启动应用。
+该脚本会先构建 portable 版本，再生成带版本号的安装包，例如当前版本输出为 `dist/oh-my-word-setup-v0.1.20.exe`。安装包提供简单的 Windows 图形界面，允许用户选择安装目录，并可选择创建桌面/开始菜单快捷方式和安装完成后启动应用。
 
 安装器会用安装清单管理应用文件。用户选择已有目录时，安装器不会递归清空整个目录；卸载脚本只删除清单中的应用文件和相关快捷方式。
 

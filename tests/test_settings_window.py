@@ -85,7 +85,7 @@ class SettingsDialogTtsTests(unittest.TestCase):
 
         labels = [dialog._tabs.tabText(index) for index in range(dialog._tabs.count())]
 
-        self.assertEqual(labels, ["学习", "显示", "发音", "快捷键", "词库", "关于"])
+        self.assertEqual(labels, ["学习", "显示", "发音", "快捷键", "词库", "帮助", "关于"])
 
     def test_pronunciation_tab_has_auto_pronounce_controls(self) -> None:
         dialog = SettingsDialog(AppSettings(auto_pronounce_on_popup=True, auto_pronounce_delay_seconds=0.75))
@@ -123,6 +123,27 @@ class SettingsDialogTtsTests(unittest.TestCase):
         self.assertIn("v0.1.3", dialog._changelog_view.toPlainText())
         self.assertIn("v0.1.2", dialog._changelog_view.toPlainText())
         self.assertIn("v0.1.1", dialog._changelog_view.toPlainText())
+
+    def test_help_tab_documents_voxcpm_parameters(self) -> None:
+        dialog = SettingsDialog(AppSettings())
+        self.addCleanup(dialog.close)
+
+        text = dialog._voxcpm_help_view.toPlainText()
+
+        self.assertIn("VoxCPM 参数操作文档", text)
+        self.assertIn("VOXCPM_DEVICE", text)
+        self.assertIn("VOXCPM_OPTIMIZE", text)
+        self.assertIn("VOXCPM_CFG_VALUE", text)
+        self.assertIn("inference_timesteps", text)
+        self.assertIn("retry_badcase_max_times", text)
+        self.assertIn("retry_badcase_ratio_threshold", text)
+        self.assertIn("leading_silence_seconds", text)
+        self.assertIn("trailing_silence_seconds", text)
+        self.assertIn("voxcpm_stream_prebuffer_seconds", text)
+        self.assertIn("voxcpm_stream_prebuffer_max_wait_seconds", text)
+        self.assertIn("5060", text)
+        self.assertIn("404/405", text)
+        self.assertTrue(dialog._voxcpm_help_view.isReadOnly())
 
     def test_voxcpm_action_buttons_emit_signals(self) -> None:
         dialog = SettingsDialog(AppSettings())

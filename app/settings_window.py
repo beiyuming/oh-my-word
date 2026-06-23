@@ -71,6 +71,55 @@ def _key_name(key: Any) -> str:
     return ""
 
 
+def _voxcpm_help_text() -> str:
+    return """VoxCPM 参数操作文档
+
+先按默认值使用。只有遇到首响慢、句中卡顿、短词漏读、显存不足或服务启动失败时，再一次只改一个参数并保存后重试。
+
+基础流程
+1. 发音引擎选择 VoxCPM 本地服务。
+2. 优先点击“下载并导入运行时包”，运行时缺模型时再用“下载并导入模型包”。
+3. 点击“检测服务”确认状态；需要立即使用时点击“启动服务”。
+4. 修改目录、下载源或高级参数后，启动/检测/导入按钮会先应用当前窗口里的值。
+
+常用服务参数
+- 端点地址：桌面端访问本机 companion service 的 HTTP 地址。默认 http://127.0.0.1:8808。只支持本机地址。
+- 请求超时：完整 WAV fallback 的网络等待上限。模型首次加载或完整生成较慢时可以调大。
+- 安装目录：VoxCPM 运行时、service 脚本和日志目录。普通用户保持默认。
+- 模型目录：VoxCPM2 模型文件目录。磁盘紧张时可以放到空间更大的盘。
+- 使用时自动启动：只在选择 VoxCPM 本地服务并触发朗读时启动已导入的服务，不会自动下载模型。
+- 语气提示词：传给 VoxCPM 的 voice prompt，例如 A calm English teacher voice.。过长或过复杂可能增加不稳定性。
+- ModelScope 命名空间/仓库名/运行时包文件名/最低驱动版本：用于下载预构建运行时和模型包。除非你在切换资产，否则保持默认。
+
+流式播放参数
+- 流式预缓冲 voxcpm_stream_prebuffer_seconds：开播前先攒多少秒 PCM 音频。值越大，首响越慢但句中卡顿更少。默认 0.35；慢 GPU 可试 0.8 到 2.0。
+- 预缓冲最大等待 voxcpm_stream_prebuffer_max_wait_seconds：墙钟等待上限。到点后只要已有有效 PCM 就先开播，避免为了攒满 2 秒音频而实际等 10 秒。慢 GPU 可试 1.5 到 3.0；如果仍卡顿，再增大流式预缓冲。
+- 旧 service 如果没有 /synthesize_stream 并返回 404/405，会自动回退完整 WAV。此时预缓冲参数不会改善首响，需要重新导入新版运行时包。
+
+VoxCPM 高级参数
+- VOXCPM_DEVICE：auto 自动选择；cuda 强制用 NVIDIA GPU；cpu 强制 CPU。GPU 异常时可用 cpu 排查，但生成会明显变慢。
+- VOXCPM_OPTIMIZE：启用模型优化。可能提升速度，也可能在某些环境加载失败；失败时服务会记录日志并用 optimize=false 重试。
+- VOXCPM_CFG_VALUE：控制生成约束强度。默认 1.5。提高可能更贴合提示但更容易慢或不稳定；声音发飘或慢时先降到 1.2 到 1.5。
+- inference_timesteps：推理步数。默认 10。步数越高通常越慢；5060 等较慢 GPU 可先试 6 到 8，质量不足再加回 10。
+- retry_badcase：检测异常短音频并重试。短词漏读时保持开启；追求最快首响时可以关闭试验。
+- retry_badcase_max_times：badcase 最大重试次数。默认 3。短词经常漏读可保持 3；想减少最坏等待可降到 1 或 2。
+- retry_badcase_ratio_threshold：判断异常短音频的比例阈值。默认 4.0。阈值越敏感，越可能触发重试，也越可能增加等待。
+- leading_silence_seconds：音频开头补静音。默认 0.12 秒。短词开头被吞时可略增到 0.15 到 0.25。
+- trailing_silence_seconds：音频结尾补静音。默认 0.30 秒。尾音被截断时可略增到 0.35 到 0.50。
+
+慢 GPU 调参顺序
+1. 先看日志里的首字节耗时、达到预缓冲耗时、已缓冲音频秒数和生成倍率。
+2. 如果生成倍率低于实时播放，先把 inference_timesteps 降到 6 到 8，再把 CFG value 降到 1.2 到 1.5。
+3. 如果首响能接受但句中卡顿，把流式预缓冲提高到 0.8 到 2.0。
+4. 如果开播前等待过久，把预缓冲最大等待设为 1.5 到 3.0，让已有 PCM 先开播。
+5. 如果仍明显低于实时播放，改用完整 WAV fallback 或继续增大预缓冲。
+
+建议
+- 每次只改一个参数，保存后朗读同一个短词和同一句例句对比。
+- 真实听感优先于数值。日志用于定位是首字节慢、预缓冲不足，还是生成速度低于实时。
+- 参数改乱后，恢复默认值通常比继续叠加调整更可靠。"""
+
+
 class HotkeyCaptureButton(QPushButton):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -236,6 +285,7 @@ class SettingsDialog(QDialog):
         self._dismiss_hotkey = HotkeyCaptureButton(self)
         self._import_wordbook_button = QPushButton("导入词库...", self)
         self._download_wordbook_button = QPushButton("下载推荐考研词库", self)
+        self._voxcpm_help_view = QPlainTextEdit(self)
         self._version_label = QLabel(f"当前版本：v{APP_VERSION}", self)
         self._changelog_view = QPlainTextEdit(self)
         self._buttons = QDialogButtonBox(
@@ -491,6 +541,7 @@ class SettingsDialog(QDialog):
         self._tabs.addTab(self._pronunciation_scroll, "发音")
         self._tabs.addTab(self._scrollable_tab(self._build_hotkeys_tab()), "快捷键")
         self._tabs.addTab(self._scrollable_tab(self._build_wordbooks_tab()), "词库")
+        self._tabs.addTab(self._build_help_tab(), "帮助")
         self._tabs.addTab(self._build_about_tab(), "关于")
         root.addWidget(self._tabs, 1)
 
@@ -620,6 +671,19 @@ class SettingsDialog(QDialog):
         form = self._new_form(widget)
         form.addRow("导入本地词库", self._import_wordbook_button)
         form.addRow("推荐词库", self._download_wordbook_button)
+        return widget
+
+    def _build_help_tab(self) -> QWidget:
+        widget = QWidget(self)
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 12, 0, 0)
+        layout.setSpacing(10)
+
+        self._voxcpm_help_view.setReadOnly(True)
+        self._voxcpm_help_view.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self._voxcpm_help_view.setPlainText(_voxcpm_help_text())
+
+        layout.addWidget(self._voxcpm_help_view, 1)
         return widget
 
     def _build_about_tab(self) -> QWidget:

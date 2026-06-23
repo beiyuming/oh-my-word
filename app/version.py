@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 
-APP_VERSION = "0.1.19"
+APP_VERSION = "0.1.20"
 
 
 @dataclass(slots=True, frozen=True)
@@ -14,6 +14,15 @@ class ChangelogEntry:
 
 
 CHANGELOG: tuple[ChangelogEntry, ...] = (
+    ChangelogEntry(
+        version="0.1.20",
+        date="2026-06-23",
+        changes=(
+            "设置窗口新增“帮助”分类，内置 VoxCPM 参数操作文档。",
+            "VoxCPM 帮助文档覆盖下载/导入/启动流程、流式预缓冲、预缓冲最大等待、高级参数和慢 GPU 调参顺序。",
+            "帮助文档明确旧 service 返回 404/405 时会回退完整 WAV，便于用户区分运行时过旧与参数调校问题。",
+        ),
+    ),
     ChangelogEntry(
         version="0.1.19",
         date="2026-06-23",

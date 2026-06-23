@@ -3,13 +3,18 @@
 from app.version import APP_VERSION, CHANGELOG, formatted_changelog
 
 
-def test_current_version_is_0_1_19() -> None:
-    assert APP_VERSION == "0.1.19"
+def test_current_version_is_0_1_20() -> None:
+    assert APP_VERSION == "0.1.20"
 
 
 def test_changelog_mentions_current_and_prior_updates() -> None:
     text = formatted_changelog()
 
+    assert "v0.1.20" in text
+    assert "帮助”分类" in text
+    assert "VoxCPM 参数操作文档" in text
+    assert "慢 GPU 调参顺序" in text
+    assert "完整 WAV" in text
     assert "v0.1.19" in text
     assert "VoxCPM 高级参数" in text
     assert "预缓冲最大等待时间" in text
@@ -71,4 +76,4 @@ def test_changelog_mentions_current_and_prior_updates() -> None:
     assert "安装包文件名带版本号" in text
     assert "VoxCPM" in text
     assert "流式" in text
-    assert CHANGELOG[0].version == "0.1.19"
+    assert CHANGELOG[0].version == "0.1.20"
